@@ -14,6 +14,7 @@ import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
+import CameraCapture from './components/CameraCapture'; // Import new component
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -48,6 +49,7 @@ const App: React.FC = () => {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [aspect, setAspect] = useState<number | undefined>();
   const [isComparing, setIsComparing] = useState<boolean>(false);
+  const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false); // State for camera view
   const imgRef = useRef<HTMLImageElement>(null);
 
   const currentImage = history[historyIndex] ?? null;
@@ -257,6 +259,7 @@ const App: React.FC = () => {
       setPrompt('');
       setEditHotspot(null);
       setDisplayHotspot(null);
+      setIsCameraOpen(false); // Make sure to close camera if open
   }, []);
 
   const handleDownload = useCallback(() => {
@@ -298,6 +301,11 @@ const App: React.FC = () => {
     setEditHotspot({ x: originalX, y: originalY });
 };
 
+  const handleCapture = (file: File) => {
+    handleImageUpload(file);
+    setIsCameraOpen(false);
+  };
+
   const renderContent = () => {
     if (error) {
        return (
@@ -305,7 +313,7 @@ const App: React.FC = () => {
             <h2 className="text-2xl font-bold text-red-300">An Error Occurred</h2>
             <p className="text-md text-red-400">{error}</p>
             <button
-                onClick={() => setError(null)}
+                onClick={() => { setError(null); if (!currentImage) handleUploadNew(); }}
                 className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg text-md transition-colors"
               >
                 Try Again
@@ -315,7 +323,10 @@ const App: React.FC = () => {
     }
     
     if (!currentImageUrl) {
-      return <StartScreen onFileSelect={handleFileSelect} />;
+      if (isCameraOpen) {
+        return <CameraCapture onCapture={handleCapture} onCancel={() => setIsCameraOpen(false)} />;
+      }
+      return <StartScreen onFileSelect={handleFileSelect} onOpenCamera={() => setIsCameraOpen(true)} />;
     }
 
     const imageDisplay = (
