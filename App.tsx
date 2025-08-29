@@ -309,7 +309,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (error) {
        return (
-           <div className="text-center animate-fade-in bg-red-500/10 border border-red-500/20 p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
+           <div className="text-center animate-fade-in bg-red-500/10 border border-red-500/20  rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
             <h2 className="text-2xl font-bold text-red-300">An Error Occurred</h2>
             <p className="text-md text-red-400">{error}</p>
             <button
@@ -507,7 +507,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen text-gray-100 flex flex-col">
       <Header />
-      <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${currentImage ? 'items-start' : 'items-center'}`}>
+      {/* Y Combinator Logo - 利用 Header 和 Main 之间的空白区域 */}
+      <div className="flex items-center justify-center py-2">
+        <img
+          src="/yc.png"
+          alt="Y Combinator"
+          className="w-32 h-8 opacity-100 pointer-events-none"
+          style={{ animation: 'float 9s ease-in-out infinite 9s' }}
+        />
+      </div>
+      <main className={`flex-grow w-full max-w-[1600px] mx-auto p-2 md:p-6 flex justify-center ${currentImage ? 'items-start' : 'items-center'}`}>
         {renderContent()}
       </main>
     </div>

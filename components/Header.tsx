@@ -12,12 +12,14 @@ const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const Header: React.FC = () => {
   return (
-    <header className="w-full py-4 px-8 border-b border-gray-700 bg-gray-800/30 backdrop-blur-sm sticky top-0 z-50">
-      <div className="flex items-center justify-center gap-3">
-          <SparkleIcon className="w-6 h-6 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight text-gray-100">
+    <header className="w-full py-4 px-8 border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex items-center gap-3">
+          <SparkleIcon className="w-6 h-6 text-blue-600" />
+          <h1 className="text-xl font-bold tracking-tight text-gray-900">
             Pixshop
           </h1>
+        </div>
       </div>
     </header>
   );
