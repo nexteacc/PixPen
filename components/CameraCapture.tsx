@@ -21,8 +21,8 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onCancel }) =>
     const startCamera = async () => {
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment" } 
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
           });
           streamRef.current = stream;
           if (videoRef.current) {
@@ -38,11 +38,11 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onCancel }) =>
         console.error("Error accessing camera:", err);
         let message = 'Could not access the camera.';
         if (err instanceof Error) {
-            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                message = 'Camera permission denied. Please enable it in your browser settings.';
-            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                message = 'No camera found on this device.';
-            }
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            message = 'Camera permission denied. Please enable it in your browser settings.';
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            message = 'No camera found on this device.';
+          }
         }
         setError(message);
         setIsLoading(false);
@@ -67,7 +67,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onCancel }) =>
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const context = canvas.getContext('2d');
-    
+
     if (context) {
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(blob => {
@@ -81,9 +81,9 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onCancel }) =>
 
   if (error) {
     return (
-      <div className="text-center animate-fade-in bg-red-500/10 border border-red-500/20 p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
-        <h2 className="text-2xl font-bold text-red-300">Camera Error</h2>
-        <p className="text-md text-red-400">{error}</p>
+      <div className="text-center animate-fade-in bg-red-50 border border-red-200 p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
+        <h2 className="text-2xl font-bold text-red-700">Camera Error</h2>
+        <p className="text-md text-red-600">{error}</p>
         <button
           onClick={onCancel}
           className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg text-md transition-colors mt-4"
@@ -107,14 +107,14 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onCancel }) =>
         {isLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             <Spinner />
-            <p className="text-gray-300">Starting camera...</p>
+            <p className="text-gray-600">Starting camera...</p>
           </div>
         )}
       </div>
       <div className="flex items-center justify-center gap-4">
         <button
           onClick={onCancel}
-          className="bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-6 rounded-lg transition-all hover:bg-white/20"
+          className="bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-all hover:bg-gray-100"
         >
           Cancel
         </button>
@@ -124,7 +124,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onCancel }) =>
           className="w-20 h-20 bg-white rounded-full border-4 border-gray-800/50 flex items-center justify-center transition-all duration-200 ease-in-out hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label="Capture photo"
         >
-           <div className="w-16 h-16 bg-white rounded-full ring-2 ring-inset ring-gray-800/50"></div>
+          <div className="w-16 h-16 bg-white rounded-full ring-2 ring-inset ring-gray-800/50"></div>
         </button>
       </div>
     </div>

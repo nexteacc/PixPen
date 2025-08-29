@@ -17,7 +17,7 @@ const Header: React.FC = () => {
         <div className="flex items-center gap-3">
           <SparkleIcon className="w-6 h-6 text-blue-600" />
           <h1 className="text-xl font-bold tracking-tight text-gray-900">
-            Pixshop
+            PixPen
           </h1>
         </div>
       </div>

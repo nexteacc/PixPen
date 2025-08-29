@@ -158,7 +158,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onOpenCamera })
           <p className="text-sm text-gray-600">or drag and drop a file</p>
 
 
-          <div className="mt-16 w-full">
+          <div className="mt-2 w-full">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <div className="relative z-10 bg-white/90 backdrop-blur-sm p-6 rounded-lg border border-gray-200/80 shadow-lg flex flex-col items-center text-center">
                 <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-4">
