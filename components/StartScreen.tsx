@@ -137,7 +137,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onOpenCamera })
             AI-Powered Photo Editing, <span className="text-blue-600">Simplified</span>
           </h1>
           <p className="max-w-2xl text-lg text-gray-700 md:text-xl">
-            Retouch photos, apply creative filters, or make professional adjustments using simple text prompts. No complex tools needed.
+            Retouch photos, apply creative filters, or crop precisely using simple text prompts. No complex tools needed.
           </p>
 
           <div className="mt-6 flex flex-col sm:flex-row items-center gap-4">
@@ -178,8 +178,8 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onOpenCamera })
                 <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-full mb-4">
                   <SunIcon className="w-6 h-6 text-orange-600" />
                 </div>
-                <h3 className="text-xl font-bold text-gray-900">Pro Adjustments</h3>
-                <p className="mt-2 text-gray-600">Enhance lighting, blur backgrounds, or change the mood. Get studio-quality results without complex tools.</p>
+                <h3 className="text-xl font-bold text-gray-900">Smart Cropping</h3>
+                <p className="mt-2 text-gray-600">Trim and reframe your shots with flexible aspect ratios to create perfect social posts or product photos.</p>
               </div>
             </div>
           </div>

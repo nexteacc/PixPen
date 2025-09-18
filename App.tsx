@@ -6,11 +6,10 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
-import { generateEditedImage, generateFilteredImage, generateAdjustedImage } from './services/geminiService';
+import { generateEditedImage, generateFilteredImage } from './services/geminiService';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
-import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
@@ -33,7 +32,7 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     return new File([u8arr], filename, {type:mime});
 }
 
-type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
+type Tab = 'retouch' | 'filters' | 'crop';
 
 const App: React.FC = () => {
   const [history, setHistory] = useState<File[]>([]);
@@ -54,6 +53,7 @@ const App: React.FC = () => {
 
   const currentImage = history[historyIndex] ?? null;
   const originalImage = history[0] ?? null;
+  const isEditing = Boolean(currentImage);
 
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
@@ -161,28 +161,6 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory]);
   
-  const handleApplyAdjustment = useCallback(async (adjustmentPrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply an adjustment to.');
-      return;
-    }
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-        const adjustedImageUrl = await generateAdjustedImage(currentImage, adjustmentPrompt);
-        const newImageFile = dataURLtoFile(adjustedImageUrl, `adjusted-${Date.now()}.png`);
-        addImageToHistory(newImageFile);
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to apply the adjustment. ${errorMessage}`);
-        console.error(err);
-    } finally {
-        setIsLoading(false);
-    }
-  }, [currentImage, addImageToHistory]);
-
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
         setError('Please select an area to crop.');
@@ -397,7 +375,7 @@ const App: React.FC = () => {
         </div>
         
         <div className="w-full bg-white border border-gray-200 rounded-lg p-2 flex items-center justify-center gap-2 shadow-sm">
-            {(['retouch', 'crop', 'adjust', 'filters'] as Tab[]).map(tab => (
+            {(['retouch', 'crop', 'filters'] as Tab[]).map(tab => (
                  <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -438,7 +416,6 @@ const App: React.FC = () => {
                 </div>
             )}
             {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-            {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} />}
             {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
         </div>
         
@@ -506,16 +483,17 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen text-gray-900 bg-white flex flex-col">
-      <Header />
-      {/* Y Combinator Logo - 利用 Header 和 Main 之间的空白区域 */}
-      <div className="flex items-center justify-center py-2">
-        <img
-          src="/yc.png"
-          alt="Y Combinator"
-          className="w-32 h-8 opacity-100 pointer-events-none"
-          style={{ animation: 'float 9s ease-in-out infinite 9s' }}
-        />
-      </div>
+      {!isEditing && <Header />}
+      {!isEditing && (
+        <div className="flex items-center justify-center py-2">
+          <img
+            src="/yc.png"
+            alt="Y Combinator"
+            className="w-32 h-8 opacity-100 pointer-events-none"
+            style={{ animation: 'float 9s ease-in-out infinite 9s' }}
+          />
+        </div>
+      )}
       <main className={`flex-grow w-full max-w-[1600px] mx-auto p-2 md:p-6 flex justify-center ${currentImage ? 'items-start' : 'items-center'}`}>
         {renderContent()}
       </main>

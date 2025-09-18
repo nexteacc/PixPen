@@ -26,7 +26,7 @@ const fileToPart = async (file: File): Promise<{ inlineData: { mimeType: string;
 
 const handleApiResponse = (
     response: GenerateContentResponse,
-    context: string // e.g., "edit", "filter", "adjustment"
+    context: string // e.g., "edit" or "filter"
 ): string => {
     // 1. Check for prompt blocking first
     if (response.promptFeedback?.blockReason) {
@@ -136,42 +136,4 @@ Output: Return ONLY the final filtered image. Do not return text.`;
     console.log('Received response from model for filter.', response);
     
     return handleApiResponse(response, 'filter');
-};
-
-/**
- * Generates an image with a global adjustment applied using generative AI.
- * @param originalImage The original image file.
- * @param adjustmentPrompt The text prompt describing the desired adjustment.
- * @returns A promise that resolves to the data URL of the adjusted image.
- */
-export const generateAdjustedImage = async (
-    originalImage: File,
-    adjustmentPrompt: string,
-): Promise<string> => {
-    console.log(`Starting global adjustment generation: ${adjustmentPrompt}`);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-    
-    const originalImagePart = await fileToPart(originalImage);
-    const prompt = `You are an expert photo editor AI. Your task is to perform a natural, global adjustment to the entire image based on the user's request.
-User Request: "${adjustmentPrompt}"
-
-Editing Guidelines:
-- The adjustment must be applied across the entire image.
-- The result must be photorealistic.
-
-Safety & Ethics Policy:
-- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
-- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
-
-Output: Return ONLY the final adjusted image. Do not return text.`;
-    const textPart = { text: prompt };
-
-    console.log('Sending image and adjustment prompt to the model...');
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [originalImagePart, textPart] },
-    });
-    console.log('Received response from model for adjustment.', response);
-    
-    return handleApiResponse(response, 'adjustment');
 };
