@@ -62,3 +62,27 @@ export const CameraIcon: React.FC<{ className?: string }> = ({ className }) => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
     </svg>
 );
+
+export const StackLayoutIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <rect x="5" y="4" width="14" height="4" rx="0.75" />
+    <rect x="5" y="10" width="14" height="4" rx="0.75" />
+    <rect x="5" y="16" width="14" height="4" rx="0.75" />
+  </svg>
+);
+
+export const RightDockLayoutIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <rect x="4" y="4" width="10" height="16" rx="0.75" />
+    <rect x="16" y="4" width="4" height="7" rx="0.75" />
+    <rect x="16" y="13" width="4" height="7" rx="0.75" />
+  </svg>
+);
+
+export const LeftDockLayoutIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <rect x="10" y="4" width="10" height="16" rx="0.75" />
+    <rect x="4" y="4" width="4" height="7" rx="0.75" />
+    <rect x="4" y="13" width="4" height="7" rx="0.75" />
+  </svg>
+);

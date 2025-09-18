@@ -11,7 +11,7 @@ import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import CropPanel from './components/CropPanel';
-import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
+import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import CameraCapture from './components/CameraCapture'; // Import new component
 
@@ -35,10 +35,16 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
 type Tab = 'retouch' | 'filters' | 'crop';
 type LayoutMode = 'vertical' | 'rightDock' | 'leftDock';
 
-const LAYOUT_OPTIONS: { value: LayoutMode; label: string }[] = [
-  { value: 'vertical', label: 'Stack' },
-  { value: 'rightDock', label: 'Right Dock' },
-  { value: 'leftDock', label: 'Left Dock' },
+type LayoutOption = {
+  value: LayoutMode;
+  label: string;
+  Icon: React.FC<{ className?: string }>;
+};
+
+const LAYOUT_OPTIONS: LayoutOption[] = [
+  { value: 'vertical', label: 'Stack layout', Icon: StackLayoutIcon },
+  { value: 'rightDock', label: 'Right dock layout', Icon: RightDockLayoutIcon },
+  { value: 'leftDock', label: 'Left dock layout', Icon: LeftDockLayoutIcon },
 ];
 
 const LAYOUT_STORAGE_KEY = 'pixpen:layout';
@@ -314,14 +320,21 @@ const App: React.FC = () => {
       <div className="flex bg-white/80 border border-gray-200 rounded-full shadow-sm overflow-hidden backdrop-blur-sm">
         {LAYOUT_OPTIONS.map(option => {
           const isActive = option.value === layout;
+          const { Icon } = option;
           return (
             <button
               key={option.value}
               type="button"
               onClick={() => setLayout(option.value)}
-              className={`px-4 py-2 text-sm font-semibold transition-colors ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+              aria-label={option.label}
+              title={option.label}
+              className={`w-10 h-10 flex items-center justify-center transition-colors ${
+                isActive
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
             >
-              {option.label}
+              <Icon className="w-5 h-5" />
             </button>
           );
         })}
