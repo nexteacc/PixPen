@@ -40,28 +40,54 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
   const displayCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const maskCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const outlineCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const isDrawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
   const hasPaintRef = useRef(false);
+  const cursorPointRef = useRef<Point | null>(null);
+  const outlinePhaseRef = useRef(0);
+  const animationFrameRef = useRef<number | null>(null);
 
   const redrawOverlay = useCallback(() => {
     const displayCanvas = displayCanvasRef.current;
-    const maskCanvas = maskCanvasRef.current;
     if (!displayCanvas) return;
     const ctx = displayCanvas.getContext('2d');
     if (!ctx) return;
 
     ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
 
-    if (!maskCanvas || !hasPaintRef.current) return;
+    const maskCanvas = maskCanvasRef.current;
+    if (maskCanvas && hasPaintRef.current) {
+      ctx.save();
+      ctx.drawImage(maskCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
+      ctx.globalCompositeOperation = 'source-in';
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.35)';
+      ctx.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
+      ctx.restore();
 
-    ctx.save();
-    ctx.drawImage(maskCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
-    ctx.globalCompositeOperation = 'source-in';
-    ctx.fillStyle = 'rgba(59, 130, 246, 0.4)';
-    ctx.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
-    ctx.restore();
-  }, []);
+      const outlineCanvas = outlineCanvasRef.current;
+      if (outlineCanvas) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(outlineCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
+        ctx.restore();
+      }
+    }
+
+    if (cursorPointRef.current && isActive) {
+      const { x, y } = cursorPointRef.current;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([8, 6]);
+      ctx.lineDashOffset = outlinePhaseRef.current;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+      ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }, [brushSize, isActive]);
 
   const clearMask = useCallback(() => {
     const displayCanvas = displayCanvasRef.current;
@@ -76,10 +102,14 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
       maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
     }
 
+    maskCanvasRef.current = maskCanvas ?? null;
     hasPaintRef.current = false;
     lastPointRef.current = null;
+    cursorPointRef.current = null;
+    outlineCanvasRef.current = null;
     onMaskChange(null);
-  }, [onMaskChange]);
+    redrawOverlay();
+  }, [onMaskChange, redrawOverlay]);
 
   useImperativeHandle(ref, () => ({ clear: clearMask }), [clearMask]);
 
@@ -119,7 +149,14 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
       maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
       maskCanvasRef.current = maskCanvas;
       maskCtxRef.current = maskCtx;
+      outlineCanvasRef.current = null;
       hasPaintRef.current = false;
+      cursorPointRef.current = null;
+      outlinePhaseRef.current = 0;
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
       redrawOverlay();
       onMaskChange(null);
     };
@@ -127,9 +164,7 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
     if (imageEl.naturalWidth && imageEl.naturalHeight) {
       initializeMaskCanvas();
     } else {
-      const handleLoad = () => {
-        initializeMaskCanvas();
-      };
+      const handleLoad = () => initializeMaskCanvas();
       imageEl.addEventListener('load', handleLoad, { once: true });
       return () => imageEl.removeEventListener('load', handleLoad);
     }
@@ -141,6 +176,7 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
       onMaskChange(null);
       return;
     }
+
     const exportCanvas = document.createElement('canvas');
     exportCanvas.width = maskCanvas.width;
     exportCanvas.height = maskCanvas.height;
@@ -154,6 +190,89 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
     exportCtx.drawImage(maskCanvas, 0, 0);
     onMaskChange(exportCanvas.toDataURL('image/png'));
   }, [onMaskChange]);
+
+  const updateOutline = useCallback((phase = outlinePhaseRef.current) => {
+    const maskCanvas = maskCanvasRef.current;
+    const maskCtx = maskCtxRef.current;
+    if (!maskCanvas || !maskCtx || !hasPaintRef.current) {
+      outlineCanvasRef.current = null;
+      return;
+    }
+
+    const width = maskCanvas.width;
+    const height = maskCanvas.height;
+    const sourceData = maskCtx.getImageData(0, 0, width, height);
+    let outlineCanvas = outlineCanvasRef.current;
+    if (!outlineCanvas) {
+      outlineCanvas = document.createElement('canvas');
+      outlineCanvasRef.current = outlineCanvas;
+    }
+    outlineCanvas.width = width;
+    outlineCanvas.height = height;
+    const outlineCtx = outlineCanvas.getContext('2d');
+    if (!outlineCtx) return;
+    const outlineData = outlineCtx.createImageData(width, height);
+
+    const src = sourceData.data;
+    const dst = outlineData.data;
+    const stride = width * 4;
+    const neighborOffsets = [-4, 4, -stride, stride];
+    const pattern = 16;
+    const duty = 8;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const alpha = src[idx + 3];
+        if (alpha === 0) continue;
+
+        let isEdge = false;
+        for (const offset of neighborOffsets) {
+          const neighborIndex = idx + offset;
+          if (neighborIndex < 0 || neighborIndex >= src.length) {
+            isEdge = true;
+            break;
+          }
+          if (src[neighborIndex + 3] === 0) {
+            isEdge = true;
+            break;
+          }
+        }
+
+        if (isEdge) {
+          const phasePosition = (x + y + phase) % pattern;
+          if (phasePosition < duty) {
+            dst[idx] = 255;
+            dst[idx + 1] = 255;
+            dst[idx + 2] = 255;
+            dst[idx + 3] = 240;
+          }
+        }
+      }
+    }
+
+    outlineCtx.putImageData(outlineData, 0, 0);
+  }, []);
+
+  const ensureOutlineAnimation = useCallback(() => {
+    if (animationFrameRef.current !== null) return;
+
+    const animate = () => {
+      if (!hasPaintRef.current) {
+        if (animationFrameRef.current !== null) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        return;
+      }
+      outlinePhaseRef.current = (outlinePhaseRef.current + 1) % 16;
+      updateOutline(outlinePhaseRef.current);
+      redrawOverlay();
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+  }, [redrawOverlay, updateOutline]);
 
   const getPointerPosition = useCallback((event: React.PointerEvent<HTMLCanvasElement>): Point | null => {
     const canvas = displayCanvasRef.current;
@@ -187,8 +306,10 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
     maskCtx.restore();
 
     hasPaintRef.current = true;
+    updateOutline();
+    ensureOutlineAnimation();
     redrawOverlay();
-  }, [brushSize, redrawOverlay]);
+  }, [brushSize, ensureOutlineAnimation, redrawOverlay, updateOutline]);
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isActive) return;
@@ -197,36 +318,65 @@ const MaskPainter = forwardRef<MaskPainterHandle, MaskPainterProps>(({
     if (!point) return;
     isDrawingRef.current = true;
     lastPointRef.current = point;
+    cursorPointRef.current = point;
     drawStroke(point, point);
   }, [drawStroke, getPointerPosition, isActive]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isActive || !isDrawingRef.current) return;
+    if (!isActive) return;
     event.preventDefault();
     const point = getPointerPosition(event);
-    if (!point || !lastPointRef.current) return;
-    drawStroke(lastPointRef.current, point);
-    lastPointRef.current = point;
-  }, [drawStroke, getPointerPosition, isActive]);
+    if (!point) return;
+    cursorPointRef.current = point;
+    if (isDrawingRef.current && lastPointRef.current) {
+      drawStroke(lastPointRef.current, point);
+      lastPointRef.current = point;
+    } else {
+      redrawOverlay();
+    }
+  }, [drawStroke, getPointerPosition, isActive, redrawOverlay]);
 
   const handlePointerUp = useCallback(() => {
-    if (!isDrawingRef.current) return;
-    isDrawingRef.current = false;
-    lastPointRef.current = null;
-    commitMask();
-  }, [commitMask]);
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      updateOutline();
+      commitMask();
+    }
+  }, [commitMask, updateOutline]);
+
+  const handlePointerLeave = useCallback(() => {
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      updateOutline();
+      commitMask();
+    }
+    cursorPointRef.current = null;
+    redrawOverlay();
+  }, [commitMask, redrawOverlay, updateOutline]);
+
+  useEffect(() => {
+    redrawOverlay();
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [brushSize, redrawOverlay]);
 
   return (
     <canvas
       ref={displayCanvasRef}
       className={`absolute top-0 left-0 w-full h-full select-none ${
-        isActive ? 'cursor-crosshair' : 'pointer-events-none'
+        isActive ? 'cursor-none' : 'pointer-events-none'
       }`}
       style={{ opacity: isVisible ? 1 : 0, transition: 'opacity 150ms ease-in-out', touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
     />
   );
 });
