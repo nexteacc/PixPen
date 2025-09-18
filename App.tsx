@@ -33,6 +33,15 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
 }
 
 type Tab = 'retouch' | 'filters' | 'crop';
+type LayoutMode = 'vertical' | 'rightDock' | 'leftDock';
+
+const LAYOUT_OPTIONS: { value: LayoutMode; label: string }[] = [
+  { value: 'vertical', label: 'Stack' },
+  { value: 'rightDock', label: 'Right Dock' },
+  { value: 'leftDock', label: 'Left Dock' },
+];
+
+const LAYOUT_STORAGE_KEY = 'pixpen:layout';
 
 const App: React.FC = () => {
   const [history, setHistory] = useState<File[]>([]);
@@ -49,6 +58,7 @@ const App: React.FC = () => {
   const [aspect, setAspect] = useState<number | undefined>();
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false); // State for camera view
+  const [layout, setLayout] = useState<LayoutMode>('vertical');
   const imgRef = useRef<HTMLImageElement>(null);
 
   const currentImage = history[historyIndex] ?? null;
@@ -79,6 +89,21 @@ const App: React.FC = () => {
       setOriginalImageUrl(null);
     }
   }, [originalImage]);
+
+  // Load preferred layout from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedLayout = window.localStorage.getItem(LAYOUT_STORAGE_KEY) as LayoutMode | null;
+    if (storedLayout && LAYOUT_OPTIONS.some(option => option.value === storedLayout)) {
+      setLayout(storedLayout);
+    }
+  }, []);
+
+  // Persist layout preference
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(LAYOUT_STORAGE_KEY, layout);
+  }, [layout]);
 
 
   const canUndo = historyIndex > 0;
@@ -284,22 +309,302 @@ const App: React.FC = () => {
     setIsCameraOpen(false);
   };
 
+  const renderLayoutSelector = () => (
+    <div className="w-full flex justify-end">
+      <div className="flex bg-white/80 border border-gray-200 rounded-full shadow-sm overflow-hidden backdrop-blur-sm">
+        {LAYOUT_OPTIONS.map(option => {
+          const isActive = option.value === layout;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setLayout(option.value)}
+              className={`px-4 py-2 text-sm font-semibold transition-colors ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const renderImageSection = (mode: LayoutMode) => {
+    const imageDisplay = (
+      <div className="relative">
+        {originalImageUrl && (
+            <img
+                key={originalImageUrl}
+            src={originalImageUrl}
+            alt="Original"
+            className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
+          />
+        )}
+        <img
+          ref={imgRef}
+          key={currentImageUrl ?? 'current'}
+          src={currentImageUrl ?? ''}
+          alt="Current"
+          onClick={handleImageClick}
+          className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
+        />
+      </div>
+    );
+
+    const cropImageElement = (
+      <img
+        ref={imgRef}
+        key={`crop-${currentImageUrl}`}
+        src={currentImageUrl ?? ''}
+        alt="Crop this image"
+        className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
+      />
+    );
+
+    return (
+      <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
+        {isLoading && (
+            <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
+                <Spinner />
+                <p className="text-gray-300">AI is working its magic...</p>
+            </div>
+        )}
+
+        {activeTab === 'crop' ? (
+          <ReactCrop
+            crop={crop}
+            onChange={c => setCrop(c)}
+            onComplete={c => setCompletedCrop(c)}
+            aspect={aspect}
+            className="max-h-[60vh]"
+          >
+            {cropImageElement}
+          </ReactCrop>
+        ) : (
+          imageDisplay
+        )}
+
+        {displayHotspot && !isLoading && activeTab === 'retouch' && (
+          <div
+            className="absolute rounded-full w-6 h-6 bg-blue-500/50 border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2 z-10"
+            style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
+          >
+            <div className="absolute inset-0 rounded-full w-6 h-6 animate-ping bg-blue-400" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTabButtons = () => {
+    return (
+      <div className="w-full bg-white border border-gray-200 rounded-lg p-2 flex items-center justify-center gap-2 shadow-sm">
+        {(['retouch', 'crop', 'filters'] as Tab[]).map(tab => {
+          const isActive = activeTab === tab;
+          const sizing = 'py-3 px-5 text-base';
+          const activeClasses = 'bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/20';
+          const inactiveClasses = 'text-gray-600 hover:text-gray-900 hover:bg-gray-50';
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`w-full capitalize font-semibold rounded-md transition-all duration-200 ${sizing} ${isActive ? activeClasses : inactiveClasses}`}
+            >
+              {tab}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderActivePanel = () => {
+    return (
+      <div className="w-full">
+        {activeTab === 'retouch' && (
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-md text-gray-600">
+              {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
+            </p>
+            <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
+                className="flex-grow bg-white border border-gray-300 text-gray-900 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isLoading || !editHotspot}
+              />
+              <button
+                type="submit"
+                className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                disabled={isLoading || !prompt.trim() || !editHotspot}
+              >
+                Generate
+              </button>
+            </form>
+          </div>
+        )}
+        {activeTab === 'crop' && (
+          <CropPanel
+            onApplyCrop={handleApplyCrop}
+            onSetAspect={setAspect}
+            isLoading={isLoading}
+            isCropping={!!completedCrop?.width && completedCrop.width > 0}
+          />
+        )}
+        {activeTab === 'filters' && (
+          <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />
+        )}
+      </div>
+    );
+  };
+
+  const renderControls = () => {
+    const sizing = 'py-3 px-5 text-base';
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+        <button
+          onClick={handleUndo}
+          disabled={!canUndo}
+          className={`flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50 ${sizing}`}
+          aria-label="Undo last action"
+        >
+          <UndoIcon className="w-5 h-5 mr-2" />
+          Undo
+        </button>
+        <button
+          onClick={handleRedo}
+          disabled={!canRedo}
+          className={`flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50 ${sizing}`}
+          aria-label="Redo last action"
+        >
+          <RedoIcon className="w-5 h-5 mr-2" />
+          Redo
+        </button>
+
+        <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block" />
+
+        {canUndo && (
+          <button
+            onMouseDown={() => setIsComparing(true)}
+            onMouseUp={() => setIsComparing(false)}
+            onMouseLeave={() => setIsComparing(false)}
+            onTouchStart={() => setIsComparing(true)}
+            onTouchEnd={() => setIsComparing(false)}
+            className={`flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 ${sizing}`}
+            aria-label="Press and hold to see original image"
+          >
+            <EyeIcon className="w-5 h-5 mr-2" />
+            Compare
+          </button>
+        )}
+
+        <button
+          onClick={handleReset}
+          disabled={!canUndo}
+          className={`text-center bg-transparent border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-50 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent ${sizing}`}
+        >
+          Reset
+        </button>
+        <button
+          onClick={handleUploadNew}
+          className={`text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 ${sizing}`}
+        >
+          Upload New
+        </button>
+
+        <button
+          onClick={handleDownload}
+          className={`flex-grow sm:flex-grow-0 ml-auto bg-gradient-to-br from-green-600 to-green-500 text-white font-bold rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner ${sizing}`}
+        >
+          Download Image
+        </button>
+      </div>
+    );
+  };
+
+  const renderEditingLayout = () => {
+    const imageSection = renderImageSection(layout);
+    const tabButtons = renderTabButtons();
+    const panelSection = renderActivePanel();
+    const controlsSection = renderControls();
+    const layoutSelector = renderLayoutSelector();
+
+    if (layout === 'vertical') {
+      return (
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 animate-fade-in">
+          {layoutSelector}
+          <div className="w-full max-w-4xl mx-auto">{imageSection}</div>
+          {tabButtons}
+          {panelSection}
+          {controlsSection}
+        </div>
+      );
+    }
+
+    if (layout === 'rightDock') {
+      return (
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-4 animate-fade-in">
+          {layoutSelector}
+          <div className="flex flex-col lg:flex-row gap-4">
+            <div className="flex-1 flex flex-col gap-4">{imageSection}</div>
+            <div className="w-full lg:w-[380px] flex flex-col gap-4">
+              {tabButtons}
+              {panelSection}
+              {controlsSection}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (layout === 'leftDock') {
+      return (
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-4 animate-fade-in">
+          {layoutSelector}
+          <div className="flex flex-col lg:flex-row gap-4">
+            <div className="w-full lg:w-[380px] flex flex-col gap-4">
+              {tabButtons}
+              {panelSection}
+              {controlsSection}
+            </div>
+            <div className="flex-1 flex flex-col gap-4">{imageSection}</div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="w-full max-w-6xl mx-auto flex flex-col gap-4 animate-fade-in">
+        {layoutSelector}
+        <div className="flex flex-col lg:flex-row-reverse gap-3">
+          <div className="flex-1 flex flex-col gap-3">{imageSection}</div>
+          <div className="w-full lg:w-[320px] flex flex-col gap-3 lg:max-h-[75vh] lg:overflow-y-auto lg:pr-1">
+            {panelSection}
+            {controlsSection}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if (error) {
-       return (
-           <div className="text-center animate-fade-in bg-red-50 border border-red-200 p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
-            <h2 className="text-2xl font-bold text-red-700">An Error Occurred</h2>
-            <p className="text-md text-red-600">{error}</p>
-            <button
-                onClick={() => { setError(null); if (!currentImage) handleUploadNew(); }}
-                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg text-md transition-colors"
-              >
-                Try Again
-            </button>
-          </div>
-        );
+      return (
+        <div className="text-center animate-fade-in bg-red-50 border border-red-200 p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
+          <h2 className="text-2xl font-bold text-red-700">An Error Occurred</h2>
+          <p className="text-md text-red-600">{error}</p>
+          <button
+            onClick={() => { setError(null); if (!currentImage) handleUploadNew(); }}
+            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg text-md transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      );
     }
-    
+
     if (!currentImageUrl) {
       if (isCameraOpen) {
         return <CameraCapture onCapture={handleCapture} onCancel={() => setIsCameraOpen(false)} />;
@@ -307,178 +612,7 @@ const App: React.FC = () => {
       return <StartScreen onFileSelect={handleFileSelect} onOpenCamera={() => setIsCameraOpen(true)} />;
     }
 
-    const imageDisplay = (
-      <div className="relative">
-        {/* Base image is the original, always at the bottom */}
-        {originalImageUrl && (
-            <img
-                key={originalImageUrl}
-                src={originalImageUrl}
-                alt="Original"
-                className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
-            />
-        )}
-        {/* The current image is an overlay that fades in/out for comparison */}
-        <img
-            ref={imgRef}
-            key={currentImageUrl}
-            src={currentImageUrl}
-            alt="Current"
-            onClick={handleImageClick}
-            className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
-        />
-      </div>
-    );
-    
-    // For ReactCrop, we need a single image element. We'll use the current one.
-    const cropImageElement = (
-      <img 
-        ref={imgRef}
-        key={`crop-${currentImageUrl}`}
-        src={currentImageUrl} 
-        alt="Crop this image"
-        className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
-      />
-    );
-
-
-    return (
-      <div className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
-        <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
-            {isLoading && (
-                <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
-                    <Spinner />
-                    <p className="text-gray-300">AI is working its magic...</p>
-                </div>
-            )}
-            
-            {activeTab === 'crop' ? (
-              <ReactCrop 
-                crop={crop} 
-                onChange={c => setCrop(c)} 
-                onComplete={c => setCompletedCrop(c)}
-                aspect={aspect}
-                className="max-h-[60vh]"
-              >
-                {cropImageElement}
-              </ReactCrop>
-            ) : imageDisplay }
-
-            {displayHotspot && !isLoading && activeTab === 'retouch' && (
-                <div 
-                    className="absolute rounded-full w-6 h-6 bg-blue-500/50 border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2 z-10"
-                    style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
-                >
-                    <div className="absolute inset-0 rounded-full w-6 h-6 animate-ping bg-blue-400"></div>
-                </div>
-            )}
-        </div>
-        
-        <div className="w-full bg-white border border-gray-200 rounded-lg p-2 flex items-center justify-center gap-2 shadow-sm">
-            {(['retouch', 'crop', 'filters'] as Tab[]).map(tab => (
-                 <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`w-full capitalize font-semibold py-3 px-5 rounded-md transition-all duration-200 text-base ${
-                        activeTab === tab 
-                        ? 'bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/20' 
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                    }`}
-                >
-                    {tab}
-                </button>
-            ))}
-        </div>
-        
-        <div className="w-full">
-            {activeTab === 'retouch' && (
-                <div className="flex flex-col items-center gap-4">
-                    <p className="text-md text-gray-600">
-                        {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
-                    </p>
-                    <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
-                        <input
-                            type="text"
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
-                            className="flex-grow bg-white border border-gray-300 text-gray-900 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
-                            disabled={isLoading || !editHotspot}
-                        />
-                        <button 
-                            type="submit"
-                            className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
-                            disabled={isLoading || !prompt.trim() || !editHotspot}
-                        >
-                            Generate
-                        </button>
-                    </form>
-                </div>
-            )}
-            {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-            {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
-        </div>
-        
-        <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-            <button 
-                onClick={handleUndo}
-                disabled={!canUndo}
-                className="flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50"
-                aria-label="Undo last action"
-            >
-                <UndoIcon className="w-5 h-5 mr-2" />
-                Undo
-            </button>
-            <button 
-                onClick={handleRedo}
-                disabled={!canRedo}
-                className="flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50"
-                aria-label="Redo last action"
-            >
-                <RedoIcon className="w-5 h-5 mr-2" />
-                Redo
-            </button>
-            
-            <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
-
-            {canUndo && (
-              <button 
-                  onMouseDown={() => setIsComparing(true)}
-                  onMouseUp={() => setIsComparing(false)}
-                  onMouseLeave={() => setIsComparing(false)}
-                  onTouchStart={() => setIsComparing(true)}
-                  onTouchEnd={() => setIsComparing(false)}
-                  className="flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 text-base"
-                  aria-label="Press and hold to see original image"
-              >
-                  <EyeIcon className="w-5 h-5 mr-2" />
-                  Compare
-              </button>
-            )}
-
-            <button 
-                onClick={handleReset}
-                disabled={!canUndo}
-                className="text-center bg-transparent border border-gray-200 text-gray-700 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-50 hover:border-gray-300 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
-              >
-                Reset
-            </button>
-            <button 
-                onClick={handleUploadNew}
-                className="text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 text-base"
-            >
-                Upload New
-            </button>
-
-            <button 
-                onClick={handleDownload}
-                className="flex-grow sm:flex-grow-0 ml-auto bg-gradient-to-br from-green-600 to-green-500 text-white font-bold py-3 px-5 rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base"
-            >
-                Download Image
-            </button>
-        </div>
-      </div>
-    );
+    return renderEditingLayout();
   };
   
   return (
