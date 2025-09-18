@@ -5,6 +5,20 @@
 
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
+const resolveApiKey = (): string => {
+    const browserKey = import.meta.env?.VITE_API_KEY;
+    const nodeKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
+    const apiKey = browserKey ?? nodeKey;
+
+    if (!apiKey) {
+        throw new Error('An API Key must be set when running in a browser. Define VITE_API_KEY in your environment configuration.');
+    }
+
+    return apiKey;
+};
+
+const createClient = () => new GoogleGenAI({ apiKey: resolveApiKey() });
+
 // Helper function to convert a File object to a Gemini API Part
 const fileToPart = async (file: File): Promise<{ inlineData: { mimeType: string; data: string; } }> => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -76,7 +90,7 @@ export const generateEditedImage = async (
     hotspot: { x: number, y: number }
 ): Promise<string> => {
     console.log('Starting generative edit at:', hotspot);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const ai = createClient();
     
     const originalImagePart = await fileToPart(originalImage);
     const prompt = `You are an expert photo editor AI. Your task is to perform a natural, localized edit on the provided image based on the user's request.
@@ -115,7 +129,7 @@ export const generateFilteredImage = async (
     filterPrompt: string,
 ): Promise<string> => {
     console.log(`Starting filter generation: ${filterPrompt}`);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const ai = createClient();
     
     const originalImagePart = await fileToPart(originalImage);
     const prompt = `You are an expert photo editor AI. Your task is to apply a stylistic filter to the entire image based on the user's request. Do not change the composition or content, only apply the style.
