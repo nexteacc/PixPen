@@ -14,6 +14,7 @@ import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import CameraCapture from './components/CameraCapture'; // Import new component
+import MaskPainter, { type MaskPainterHandle } from './components/MaskPainter';
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -55,8 +56,6 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
-  const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('retouch');
   
   const [crop, setCrop] = useState<Crop>();
@@ -64,8 +63,11 @@ const App: React.FC = () => {
   const [aspect, setAspect] = useState<number | undefined>();
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false); // State for camera view
+  const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
+  const [brushSize, setBrushSize] = useState<number>(40);
   const [layout, setLayout] = useState<LayoutMode>('vertical');
   const imgRef = useRef<HTMLImageElement>(null);
+  const maskPainterRef = useRef<MaskPainterHandle>(null);
 
   const currentImage = history[historyIndex] ?? null;
   const originalImage = history[0] ?? null;
@@ -129,11 +131,11 @@ const App: React.FC = () => {
     setError(null);
     setHistory([file]);
     setHistoryIndex(0);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
     setActiveTab('retouch');
     setCrop(undefined);
     setCompletedCrop(undefined);
+    setMaskDataUrl(null);
+    maskPainterRef.current?.clear();
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -141,34 +143,33 @@ const App: React.FC = () => {
       setError('No image loaded to edit.');
       return;
     }
-    
+
     if (!prompt.trim()) {
-        setError('Please enter a description for your edit.');
-        return;
+      setError('Please enter a description for your edit.');
+      return;
     }
 
-    if (!editHotspot) {
-        setError('Please click on the image to select an area to edit.');
-        return;
+    if (!maskDataUrl) {
+      setError('Please paint an area on the image to edit.');
+      return;
     }
 
     setIsLoading(true);
     setError(null);
-    
+
     try {
-        const editedImageUrl = await generateEditedImage(currentImage, prompt, editHotspot);
-        const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
-        addImageToHistory(newImageFile);
-        setEditHotspot(null);
-        setDisplayHotspot(null);
+      const maskFile = dataURLtoFile(maskDataUrl, `mask-${Date.now()}.png`);
+      const editedImageUrl = await generateEditedImage(currentImage, prompt, maskFile);
+      const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
+      addImageToHistory(newImageFile);
     } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to generate the image. ${errorMessage}`);
-        console.error(err);
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      setError(`Failed to generate the image. ${errorMessage}`);
+      console.error(err);
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
-  }, [currentImage, prompt, editHotspot, addImageToHistory]);
+  }, [currentImage, prompt, maskDataUrl, addImageToHistory]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -239,16 +240,12 @@ const App: React.FC = () => {
   const handleUndo = useCallback(() => {
     if (canUndo) {
       setHistoryIndex(historyIndex - 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
     }
   }, [canUndo, historyIndex]);
   
   const handleRedo = useCallback(() => {
     if (canRedo) {
       setHistoryIndex(historyIndex + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
     }
   }, [canRedo, historyIndex]);
 
@@ -256,8 +253,6 @@ const App: React.FC = () => {
     if (history.length > 0) {
       setHistoryIndex(0);
       setError(null);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
     }
   }, [history]);
 
@@ -266,9 +261,9 @@ const App: React.FC = () => {
       setHistoryIndex(-1);
       setError(null);
       setPrompt('');
-      setEditHotspot(null);
-      setDisplayHotspot(null);
       setIsCameraOpen(false); // Make sure to close camera if open
+      setMaskDataUrl(null);
+      maskPainterRef.current?.clear();
   }, []);
 
   const handleDownload = useCallback(() => {
@@ -288,27 +283,6 @@ const App: React.FC = () => {
       handleImageUpload(files[0]);
     }
   };
-
-  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (activeTab !== 'retouch') return;
-    
-    const img = e.currentTarget;
-    const rect = img.getBoundingClientRect();
-
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
-    
-    setDisplayHotspot({ x: offsetX, y: offsetY });
-
-    const { naturalWidth, naturalHeight, clientWidth, clientHeight } = img;
-    const scaleX = naturalWidth / clientWidth;
-    const scaleY = naturalHeight / clientHeight;
-
-    const originalX = Math.round(offsetX * scaleX);
-    const originalY = Math.round(offsetY * scaleY);
-
-    setEditHotspot({ x: originalX, y: originalY });
-};
 
   const handleCapture = (file: File) => {
     handleImageUpload(file);
@@ -346,8 +320,8 @@ const App: React.FC = () => {
     const imageDisplay = (
       <div className="relative">
         {originalImageUrl && (
-            <img
-                key={originalImageUrl}
+          <img
+            key={originalImageUrl}
             src={originalImageUrl}
             alt="Original"
             className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
@@ -358,9 +332,19 @@ const App: React.FC = () => {
           key={currentImageUrl ?? 'current'}
           src={currentImageUrl ?? ''}
           alt="Current"
-          onClick={handleImageClick}
-          className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
+          className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out pointer-events-none ${isComparing ? 'opacity-0' : 'opacity-100'}`}
         />
+        {currentImageUrl && (
+          <MaskPainter
+            ref={maskPainterRef}
+            imageRef={imgRef}
+            imageUrl={currentImageUrl}
+            brushSize={brushSize}
+            isActive={!isComparing && !isLoading && activeTab === 'retouch'}
+            isVisible={activeTab === 'retouch' && !isComparing}
+            onMaskChange={setMaskDataUrl}
+          />
+        )}
       </div>
     );
 
@@ -396,15 +380,6 @@ const App: React.FC = () => {
         ) : (
           imageDisplay
         )}
-
-        {displayHotspot && !isLoading && activeTab === 'retouch' && (
-          <div
-            className="absolute rounded-full w-6 h-6 bg-blue-500/50 border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2 z-10"
-            style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
-          >
-            <div className="absolute inset-0 rounded-full w-6 h-6 animate-ping bg-blue-400" />
-          </div>
-        )}
       </div>
     );
   };
@@ -437,21 +412,46 @@ const App: React.FC = () => {
         {activeTab === 'retouch' && (
           <div className="flex flex-col items-center gap-4">
             <p className="text-md text-gray-600">
-              {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
+              Paint over the area you want to change, then describe the edit you have in mind.
             </p>
+            <div className="w-full bg-white border border-gray-200 rounded-lg p-4 shadow-sm flex flex-col gap-3">
+              <label className="flex flex-col gap-1 text-sm font-medium text-gray-600">
+                Brush Size
+                <input
+                  type="range"
+                  min={10}
+                  max={150}
+                  step={5}
+                  value={brushSize}
+                  onChange={(e) => setBrushSize(Number(e.target.value))}
+                  className="w-full accent-blue-600"
+                />
+                <span className="text-xs text-gray-500">Current: {brushSize}px</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  maskPainterRef.current?.clear();
+                  setMaskDataUrl(null);
+                }}
+                className="self-start inline-flex items-center gap-2 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 transition-colors hover:bg-gray-100"
+              >
+                Clear Selection
+              </button>
+            </div>
             <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
               <input
                 type="text"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
+                placeholder="Describe how you want to transform the painted area"
                 className="flex-grow bg-white border border-gray-300 text-gray-900 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isLoading || !editHotspot}
+                disabled={isLoading}
               />
               <button
                 type="submit"
                 className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
-                disabled={isLoading || !prompt.trim() || !editHotspot}
+                disabled={isLoading || !prompt.trim() || !maskDataUrl}
               >
                 Generate
               </button>
