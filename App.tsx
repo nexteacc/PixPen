@@ -477,7 +477,7 @@ const App: React.FC = () => {
         {activeTab === 'filters' && (
           <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />
         )}
-        */
+        */}
       </div>
     );
   };
