@@ -40,16 +40,16 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading }) =
   };
 
   return (
-    <div className="w-full bg-white border border-gray-200 rounded-lg p-4 flex flex-col gap-4 animate-fade-in shadow-sm">
-      <h3 className="text-lg font-semibold text-center text-gray-700">Apply a Filter</h3>
+    <div className="w-full bg-white border border-gray-200 rounded-lg p-3 flex flex-col gap-3 animate-fade-in shadow-sm">
+      <h3 className="text-base font-semibold text-center text-gray-700">Apply a Filter</h3>
       
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         {presets.map(preset => (
           <button
             key={preset.name}
             onClick={() => handlePresetClick(preset.prompt)}
             disabled={isLoading}
-            className={`w-full text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-3 px-4 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed ${selectedPresetPrompt === preset.prompt ? 'ring-2 ring-offset-2 ring-offset-white ring-blue-500' : ''}`}
+            className={`w-full text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-1.5 px-2 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed ${selectedPresetPrompt === preset.prompt ? 'ring-2 ring-offset-1 ring-offset-white ring-blue-500' : ''}`}
           >
             {preset.name}
           </button>
@@ -60,16 +60,16 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading }) =
         type="text"
         value={customPrompt}
         onChange={handleCustomChange}
-        placeholder="Or describe a custom filter (e.g., '80s synthwave glow')"
-        className="flex-grow bg-white border border-gray-300 text-gray-900 rounded-lg p-4 focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60 text-base"
+        placeholder="Custom filter description..."
+        className="w-full bg-white border border-gray-300 text-gray-900 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:cursor-not-allowed disabled:opacity-60 text-sm"
         disabled={isLoading}
       />
       
       {activePrompt && (
-        <div className="animate-fade-in flex flex-col gap-4 pt-2">
+        <div className="animate-fade-in flex flex-col gap-2 pt-1">
           <button
             onClick={handleApply}
-            className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+            className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-2.5 px-4 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-sm disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
             disabled={isLoading || !activePrompt.trim()}
           >
             Apply Filter

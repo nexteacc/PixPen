@@ -65,7 +65,7 @@ const App: React.FC = () => {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false); // State for camera view
   const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState<number>(40);
-  const [layout, setLayout] = useState<LayoutMode>('vertical');
+  const [layout, setLayout] = useState<LayoutMode>('rightDock');
   const imgRef = useRef<HTMLImageElement>(null);
   const maskPainterRef = useRef<MaskPainterHandle>(null);
 
@@ -257,14 +257,17 @@ const App: React.FC = () => {
   }, [history]);
 
   const handleUploadNew = useCallback(() => {
-      setHistory([]);
-      setHistoryIndex(-1);
-      setError(null);
-      setPrompt('');
-      setIsCameraOpen(false); // Make sure to close camera if open
-      setMaskDataUrl(null);
-      maskPainterRef.current?.clear();
-  }, []);
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.files && target.files[0]) {
+          handleImageUpload(target.files[0]);
+        }
+      };
+      input.click();
+  }, [handleImageUpload]);
 
   const handleDownload = useCallback(() => {
       if (currentImage) {
@@ -386,17 +389,17 @@ const App: React.FC = () => {
 
   const renderTabButtons = () => {
     return (
-      <div className="w-full bg-white border border-gray-200 rounded-lg p-2 flex items-center justify-center gap-2 shadow-sm">
+      <div className="w-full bg-white border border-gray-200 rounded-lg p-1.5 flex items-center justify-center gap-1.5 shadow-sm">
         {(['retouch', 'crop', 'filters'] as Tab[]).map(tab => {
           const isActive = activeTab === tab;
-          const sizing = 'py-3 px-5 text-base';
+          const sizing = 'py-2 px-3 text-sm';
           const activeClasses = 'bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/20';
           const inactiveClasses = 'text-gray-600 hover:text-gray-900 hover:bg-gray-50';
           return (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`w-full capitalize font-semibold rounded-md transition-all duration-200 ${sizing} ${isActive ? activeClasses : inactiveClasses}`}
+              className={`flex-1 capitalize font-semibold rounded-md transition-all duration-200 ${sizing} ${isActive ? activeClasses : inactiveClasses}`}
             >
               {tab}
             </button>
@@ -410,12 +413,12 @@ const App: React.FC = () => {
     return (
       <div className="w-full">
         {activeTab === 'retouch' && (
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-md text-gray-600">
-              Paint over the area you want to change, then describe the edit you have in mind.
+          <div className="flex flex-col gap-3">
+            <p className="text-xs text-gray-600 leading-snug">
+              Paint the area to change, then describe the edit.
             </p>
-            <div className="w-full bg-white border border-gray-200 rounded-lg p-4 shadow-sm flex flex-col gap-3">
-              <label className="flex flex-col gap-1 text-sm font-medium text-gray-600">
+            <div className="w-full bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-col gap-2">
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
                 Brush Size
                 <input
                   type="range"
@@ -434,23 +437,25 @@ const App: React.FC = () => {
                   maskPainterRef.current?.clear();
                   setMaskDataUrl(null);
                 }}
-                className="self-start inline-flex items-center gap-2 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 transition-colors hover:bg-gray-100"
+                className="self-start inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1.5 transition-colors hover:bg-gray-100"
               >
                 Clear Selection
               </button>
             </div>
-            <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
-              <input
-                type="text"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe how you want to transform the painted area"
-                className="flex-grow bg-white border border-gray-300 text-gray-900 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isLoading}
-              />
+            <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex flex-col gap-2.5">
+              <div className="w-full bg-white border border-gray-300 rounded-lg overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition">
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe your edit here..."
+                  className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60 min-h-24 leading-relaxed"
+                  disabled={isLoading}
+                  rows={4}
+                />
+              </div>
               <button
                 type="submit"
-                className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-4 text-sm rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
                 disabled={isLoading || !prompt.trim() || !maskDataUrl}
               >
                 Generate
@@ -474,29 +479,27 @@ const App: React.FC = () => {
   };
 
   const renderControls = () => {
-    const sizing = 'py-3 px-5 text-base';
+    const sizing = 'py-2 px-3 text-sm';
     return (
-      <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+      <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
         <button
           onClick={handleUndo}
           disabled={!canUndo}
           className={`flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50 ${sizing}`}
           aria-label="Undo last action"
+          title="Undo"
         >
-          <UndoIcon className="w-5 h-5 mr-2" />
-          Undo
+          <UndoIcon className="w-4 h-4" />
         </button>
         <button
           onClick={handleRedo}
           disabled={!canRedo}
           className={`flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50 ${sizing}`}
           aria-label="Redo last action"
+          title="Redo"
         >
-          <RedoIcon className="w-5 h-5 mr-2" />
-          Redo
+          <RedoIcon className="w-4 h-4" />
         </button>
-
-        <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block" />
 
         {canUndo && (
           <button
@@ -507,9 +510,9 @@ const App: React.FC = () => {
             onTouchEnd={() => setIsComparing(false)}
             className={`flex items-center justify-center text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 ${sizing}`}
             aria-label="Press and hold to see original image"
+            title="Compare"
           >
-            <EyeIcon className="w-5 h-5 mr-2" />
-            Compare
+            <EyeIcon className="w-4 h-4" />
           </button>
         )}
 
@@ -517,21 +520,24 @@ const App: React.FC = () => {
           onClick={handleReset}
           disabled={!canUndo}
           className={`text-center bg-transparent border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-50 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent ${sizing}`}
+          title="Reset to original"
         >
           Reset
         </button>
         <button
           onClick={handleUploadNew}
           className={`text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 ${sizing}`}
+          title="Upload new image"
         >
-          Upload New
+          New
         </button>
 
         <button
           onClick={handleDownload}
-          className={`flex-grow sm:flex-grow-0 ml-auto bg-gradient-to-br from-green-600 to-green-500 text-white font-bold rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner ${sizing}`}
+          className={`ml-auto bg-gradient-to-br from-green-600 to-green-500 text-white font-bold rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner ${sizing}`}
+          title="Download edited image"
         >
-          Download Image
+          Download
         </button>
       </div>
     );
@@ -546,9 +552,9 @@ const App: React.FC = () => {
 
     if (layout === 'vertical') {
       return (
-        <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 animate-fade-in">
+        <div className="w-full max-w-4xl mx-auto flex flex-col gap-4 animate-fade-in">
           {layoutSelector}
-          <div className="w-full max-w-4xl mx-auto">{imageSection}</div>
+          <div className="w-full">{imageSection}</div>
           {tabButtons}
           {panelSection}
           {controlsSection}
@@ -558,11 +564,11 @@ const App: React.FC = () => {
 
     if (layout === 'rightDock') {
       return (
-        <div className="w-full max-w-6xl mx-auto flex flex-col gap-4 animate-fade-in">
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-3 animate-fade-in">
           {layoutSelector}
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1 flex flex-col gap-4">{imageSection}</div>
-            <div className="w-full lg:w-[380px] flex flex-col gap-4">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="flex-1 flex flex-col gap-3 min-w-0">{imageSection}</div>
+            <div className="w-full lg:w-72 flex flex-col gap-3 flex-shrink-0">
               {tabButtons}
               {panelSection}
               {controlsSection}
@@ -574,26 +580,27 @@ const App: React.FC = () => {
 
     if (layout === 'leftDock') {
       return (
-        <div className="w-full max-w-6xl mx-auto flex flex-col gap-4 animate-fade-in">
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-3 animate-fade-in">
           {layoutSelector}
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="w-full lg:w-[380px] flex flex-col gap-4">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="w-full lg:w-72 flex flex-col gap-3 flex-shrink-0">
               {tabButtons}
               {panelSection}
               {controlsSection}
             </div>
-            <div className="flex-1 flex flex-col gap-4">{imageSection}</div>
+            <div className="flex-1 flex flex-col gap-3 min-w-0">{imageSection}</div>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="w-full max-w-6xl mx-auto flex flex-col gap-4 animate-fade-in">
+      <div className="w-full max-w-6xl mx-auto flex flex-col gap-3 animate-fade-in">
         {layoutSelector}
-        <div className="flex flex-col lg:flex-row-reverse gap-3">
-          <div className="flex-1 flex flex-col gap-3">{imageSection}</div>
-          <div className="w-full lg:w-[320px] flex flex-col gap-3 lg:max-h-[75vh] lg:overflow-y-auto lg:pr-1">
+        <div className="flex flex-col lg:flex-row gap-3">
+          <div className="flex-1 flex flex-col gap-3 min-w-0">{imageSection}</div>
+          <div className="w-full lg:w-64 flex flex-col gap-3 flex-shrink-0 lg:max-h-[70vh] lg:overflow-y-auto lg:pr-1">
+            {tabButtons}
             {panelSection}
             {controlsSection}
           </div>
