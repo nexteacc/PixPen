@@ -7,14 +7,19 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { generateEditedImage, generateFilteredImage } from './services/geminiService';
+import { segmentImage } from './src/services/segmentationService';
+import type { SegmentObject } from './src/types/segmentation';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
-import CameraCapture from './components/CameraCapture'; // Import new component
-import MaskPainter, { type MaskPainterHandle } from './components/MaskPainter';
+import CameraCapture from './components/CameraCapture';
+import LoadingOverlay from './src/components/LoadingOverlay';
+import ObjectSelectCanvas from './src/components/ObjectSelectCanvas';
+import EditPanel from './src/components/EditPanel';
+// import MaskPainter, { type MaskPainterHandle } from './components/MaskPainter';
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -62,12 +67,19 @@ const App: React.FC = () => {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [aspect, setAspect] = useState<number | undefined>();
   const [isComparing, setIsComparing] = useState<boolean>(false);
-  const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false); // State for camera view
-  const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
-  const [brushSize, setBrushSize] = useState<number>(40);
+  const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
+  // const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
+  // const [brushSize, setBrushSize] = useState<number>(40);
   const [layout, setLayout] = useState<LayoutMode>('rightDock');
+  
+  // Object selection states
+  const [segmentObjects, setSegmentObjects] = useState<SegmentObject[]>([]);
+  const [selectedObject, setSelectedObject] = useState<SegmentObject | null>(null);
+  const [isSegmenting, setIsSegmenting] = useState<boolean>(false);
+  const [segmentationError, setSegmentationError] = useState<string | null>(null);
+  
   const imgRef = useRef<HTMLImageElement>(null);
-  const maskPainterRef = useRef<MaskPainterHandle>(null);
+  // const maskPainterRef = useRef<MaskPainterHandle>(null);
 
   const currentImage = history[historyIndex] ?? null;
   const originalImage = history[0] ?? null;
@@ -127,30 +139,47 @@ const App: React.FC = () => {
     setCompletedCrop(undefined);
   }, [history, historyIndex]);
 
-  const handleImageUpload = useCallback((file: File) => {
+  const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
     setHistory([file]);
     setHistoryIndex(0);
     setActiveTab('retouch');
     setCrop(undefined);
     setCompletedCrop(undefined);
-    setMaskDataUrl(null);
-    maskPainterRef.current?.clear();
+    // setMaskDataUrl(null);
+    // maskPainterRef.current?.clear();
+    
+    // Auto-segment on upload
+    setIsSegmenting(true);
+    setSegmentationError(null);
+    setSegmentObjects([]);
+    setSelectedObject(null);
+    
+    try {
+      const objects = await segmentImage(file);
+      setSegmentObjects(objects);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '图片分割失败';
+      setSegmentationError(errorMessage);
+      console.error('❌ Segmentation error:', err);
+    } finally {
+      setIsSegmenting(false);
+    }
   }, []);
 
   const handleGenerate = useCallback(async () => {
     if (!currentImage) {
-      setError('No image loaded to edit.');
+      setError('没有加载图片进行编辑。');
       return;
     }
 
     if (!prompt.trim()) {
-      setError('Please enter a description for your edit.');
+      setError('请输入编辑描述。');
       return;
     }
 
-    if (!maskDataUrl) {
-      setError('Please paint an area on the image to edit.');
+    if (!selectedObject) {
+      setError('请选择一个物体进行编辑。');
       return;
     }
 
@@ -158,22 +187,26 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const maskFile = dataURLtoFile(maskDataUrl, `mask-${Date.now()}.png`);
-      const editedImageUrl = await generateEditedImage(currentImage, prompt, maskFile);
+      // Use the maskFile directly from selectedObject
+      const editedImageUrl = await generateEditedImage(currentImage, prompt, selectedObject.maskFile);
       const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
       addImageToHistory(newImageFile);
+      
+      // Clear selection after successful edit
+      setSelectedObject(null);
+      setPrompt('');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-      setError(`Failed to generate the image. ${errorMessage}`);
+      const errorMessage = err instanceof Error ? err.message : '发生未知错误。';
+      setError(`生成图片失败。${errorMessage}`);
       console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [currentImage, prompt, maskDataUrl, addImageToHistory]);
+  }, [currentImage, prompt, selectedObject, addImageToHistory]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
-      setError('No image loaded to apply a filter to.');
+      setError('没有加载图片以应用滤镜。');
       return;
     }
     
@@ -185,8 +218,8 @@ const App: React.FC = () => {
         const newImageFile = dataURLtoFile(filteredImageUrl, `filtered-${Date.now()}.png`);
         addImageToHistory(newImageFile);
     } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to apply the filter. ${errorMessage}`);
+        const errorMessage = err instanceof Error ? err.message : '发生未知错误。';
+        setError(`应用滤镜失败。${errorMessage}`);
         console.error(err);
     } finally {
         setIsLoading(false);
@@ -195,7 +228,7 @@ const App: React.FC = () => {
   
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
-        setError('Please select an area to crop.');
+        setError('请选择要裁剪的区域。');
         return;
     }
 
@@ -209,7 +242,7 @@ const App: React.FC = () => {
     const ctx = canvas.getContext('2d');
 
     if (!ctx) {
-        setError('Could not process the crop.');
+        setError('无法处理裁剪。');
         return;
     }
 
@@ -319,6 +352,26 @@ const App: React.FC = () => {
     </div>
   );
 
+  const handleResegment = useCallback(async () => {
+    if (!currentImage) return;
+    
+    setIsSegmenting(true);
+    setSegmentationError(null);
+    setSegmentObjects([]);
+    setSelectedObject(null);
+    
+    try {
+      const objects = await segmentImage(currentImage);
+      setSegmentObjects(objects);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '图片分割失败';
+      setSegmentationError(errorMessage);
+      console.error('Segmentation error:', err);
+    } finally {
+      setIsSegmenting(false);
+    }
+  }, [currentImage]);
+
   const renderImageSection = (mode: LayoutMode) => {
     const imageDisplay = (
       <div className="relative w-full">
@@ -337,6 +390,17 @@ const App: React.FC = () => {
           alt="Current"
           className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out pointer-events-none ${isComparing ? 'opacity-0' : 'opacity-100'}`}
         />
+        {currentImageUrl && activeTab === 'retouch' && !isComparing && (
+          <ObjectSelectCanvas
+            imageRef={imgRef}
+            imageUrl={currentImageUrl}
+            objects={segmentObjects}
+            selectedObject={selectedObject}
+            onSelectObject={setSelectedObject}
+            isActive={!isLoading && !isSegmenting}
+          />
+        )}
+        {/* Old brush-based mask painter - commented out
         {currentImageUrl && (
           <MaskPainter
             ref={maskPainterRef}
@@ -348,6 +412,7 @@ const App: React.FC = () => {
             onMaskChange={setMaskDataUrl}
           />
         )}
+        */}
       </div>
     );
 
@@ -363,12 +428,8 @@ const App: React.FC = () => {
 
     return (
       <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
-        {isLoading && (
-            <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
-                <Spinner />
-                <p className="text-gray-300">AI is working its magic...</p>
-            </div>
-        )}
+        {isLoading && <LoadingOverlay message="AI 正在施展魔法..." />}
+        {isSegmenting && <LoadingOverlay message="正在分析图片物体..." />}
 
         {activeTab === 'crop' ? (
           <div className="w-full flex justify-center">
@@ -415,55 +476,18 @@ const App: React.FC = () => {
     return (
       <div className="w-full">
         {activeTab === 'retouch' && (
-          <div className="flex flex-col gap-3">
-            <p className="text-xs text-gray-600 leading-snug">
-              Paint the area to change, then describe the edit.
-            </p>
-            <div className="w-full bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-col gap-2">
-              <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                Brush Size
-                <input
-                  type="range"
-                  min={10}
-                  max={150}
-                  step={5}
-                  value={brushSize}
-                  onChange={(e) => setBrushSize(Number(e.target.value))}
-                  className="w-full accent-blue-600"
-                />
-                <span className="text-xs text-gray-500">Current: {brushSize}px</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  maskPainterRef.current?.clear();
-                  setMaskDataUrl(null);
-                }}
-                className="self-start inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1.5 transition-colors hover:bg-gray-100"
-              >
-                Clear Selection
-              </button>
-            </div>
-            <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex flex-col gap-2.5">
-              <div className="w-full bg-white border border-gray-300 rounded-lg overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition">
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Describe your edit here..."
-                  className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60 min-h-24 leading-relaxed"
-                  disabled={isLoading}
-                  rows={4}
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-4 text-sm rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
-                disabled={isLoading || !prompt.trim() || !maskDataUrl}
-              >
-                Generate
-              </button>
-            </form>
-          </div>
+          <EditPanel
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            onGenerate={handleGenerate}
+            onResegment={handleResegment}
+            onClearSelection={() => setSelectedObject(null)}
+            isLoading={isLoading}
+            isSegmenting={isSegmenting}
+            hasSelectedObject={!!selectedObject}
+            segmentationError={segmentationError}
+            objectCount={segmentObjects.length}
+          />
         )}
         {activeTab === 'crop' && (
           <CropPanel

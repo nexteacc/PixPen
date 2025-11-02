@@ -4,6 +4,7 @@
 */
 
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import type { SegmentObject } from "../types/segmentation";
 
 const resolveApiKey = (): string => {
     const browserKey = import.meta.env?.VITE_API_KEY;
@@ -160,4 +161,58 @@ Output: Return ONLY the final filtered image. Do not return text.`;
     console.log('Received response from model for filter.', response);
     
     return handleApiResponse(response, 'filter');
+};
+
+/**
+ * Edits a selected object in the image using AI-based segmentation mask.
+ * This is the precise editing method using object selection.
+ * @param originalImage The original image file.
+ * @param selectedObject The selected object with mask and coordinates.
+ * @param userPrompt The text prompt describing the desired edit.
+ * @returns A promise that resolves to the data URL of the edited image.
+ */
+export const editSelectedObject = async (
+    originalImage: File,
+    selectedObject: SegmentObject,
+    userPrompt: string,
+): Promise<string> => {
+    console.log('Starting precise object edit with segmentation mask.');
+    const ai = createClient();
+    
+    const originalImagePart = await fileToPart(originalImage);
+    const maskPart = await fileToPart(selectedObject.maskFile);
+    
+    const prompt = `You are an expert photo editor AI.
+The first image is the original photo.
+The second image is a segmentation mask highlighting the target object at coordinates [${selectedObject.box.join(', ')}].
+
+User instruction: "${userPrompt}"
+
+Editing Guidelines:
+- ONLY modify the object indicated by the mask
+- Keep all other parts of the image unchanged
+- Make the edit look natural and realistic
+- Blend the edited area seamlessly with the surrounding context
+
+Safety & Ethics Policy:
+- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
+- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
+
+Output: Return ONLY the final edited image. Do not return text.`;
+    const textPart = { text: prompt };
+
+    console.log('Sending image, mask, and prompt to the model...');
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image-preview',
+        contents: {
+            parts: [
+                textPart,
+                originalImagePart,
+                maskPart,
+            ],
+        },
+    });
+    console.log('Received response from model for object edit.', response);
+
+    return handleApiResponse(response, 'object-edit');
 };
