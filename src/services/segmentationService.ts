@@ -118,6 +118,24 @@ async function fileToPart(file: File): Promise<{ inlineData: { mimeType: string;
     return { inlineData: { mimeType, data } };
 }
 
+const fileToDataURL = async (file: File): Promise<string> => {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = error => reject(error);
+    });
+};
+
+const loadImage = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+};
+
 /**
  * 验证掩码文件是否有效
  */
@@ -180,4 +198,72 @@ Output a JSON list of segmentation masks where each entry contains the 2D boundi
     });
     
     return objects;
+}
+
+/**
+ * 将掩码拉伸到与原图相同的尺寸，保持坐标系一致。
+ */
+export async function alignMasksToOriginal(
+    objects: SegmentObject[],
+    originalImage: File,
+): Promise<SegmentObject[]> {
+    if (objects.length === 0) {
+        return objects;
+    }
+
+    const originalDataUrl = await fileToDataURL(originalImage);
+    const originalImg = await loadImage(originalDataUrl);
+    const targetWidth = originalImg.naturalWidth || originalImg.width;
+    const targetHeight = originalImg.naturalHeight || originalImg.height;
+
+    if (!targetWidth || !targetHeight) {
+        throw new Error('无法获取原图尺寸，无法对齐掩码。');
+    }
+
+    return Promise.all(objects.map(async (obj, index) => {
+        const maskDataUrl = await fileToDataURL(obj.maskFile);
+        const maskImg = await loadImage(maskDataUrl);
+
+        if (!maskImg.naturalWidth || !maskImg.naturalHeight) {
+            throw new Error(`无法读取掩码尺寸：${obj.id}`);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+            throw new Error('无法创建用于缩放掩码的画布上下文。');
+        }
+
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+            maskImg,
+            0,
+            0,
+            maskImg.naturalWidth,
+            maskImg.naturalHeight,
+            0,
+            0,
+            targetWidth,
+            targetHeight,
+        );
+
+        const scaledDataUrl = canvas.toDataURL('image/png');
+        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+
+        if (!blob) {
+            throw new Error('无法生成对齐后的掩码文件。');
+        }
+
+        const scaledFileName = obj.maskFile.name || `mask_${index}.png`;
+        const scaledFile = new File([blob], scaledFileName, { type: 'image/png' });
+
+        return {
+            ...obj,
+            mask: scaledDataUrl,
+            maskFile: scaledFile,
+        };
+    }));
 }

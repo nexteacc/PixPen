@@ -7,10 +7,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { generateEditedImage, generateFilteredImage } from './services/geminiService';
-import { segmentImage } from './src/services/segmentationService';
+import { segmentImage, alignMasksToOriginal } from './src/services/segmentationService';
 import type { SegmentObject } from './src/types/segmentation';
 import Header from './components/Header';
-import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon } from './components/icons';
@@ -37,6 +36,68 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     }
     return new File([u8arr], filename, {type:mime});
 }
+
+const fileToDataURL = async (file: File): Promise<string> => {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+  });
+};
+
+const loadImage = (src: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+};
+
+const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
+  if (maskFiles.length === 1) {
+    return maskFiles[0];
+  }
+
+  const dataUrls = await Promise.all(maskFiles.map(fileToDataURL));
+  const baseImage = await loadImage(dataUrls[0]);
+  const width = baseImage.naturalWidth || baseImage.width;
+  const height = baseImage.naturalHeight || baseImage.height;
+
+  if (!width || !height) {
+    throw new Error('无法读取掩码尺寸。');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error('无法创建掩码画布。');
+  }
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = false;
+
+  for (const dataUrl of dataUrls) {
+    const maskImg = await loadImage(dataUrl);
+    const previousComposite = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighten';
+    ctx.drawImage(maskImg, 0, 0, width, height);
+    ctx.globalCompositeOperation = previousComposite;
+  }
+
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+
+  if (!blob) {
+    throw new Error('无法导出组合掩码。');
+  }
+
+  return new File([blob], `combined-mask-${Date.now()}.png`, { type: 'image/png' });
+};
 
 type Tab = 'retouch' | 'crop'; // 'filters' disabled
 type LayoutMode = 'vertical' | 'rightDock' | 'leftDock';
@@ -74,7 +135,7 @@ const App: React.FC = () => {
   
   // Object selection states
   const [segmentObjects, setSegmentObjects] = useState<SegmentObject[]>([]);
-  const [selectedObject, setSelectedObject] = useState<SegmentObject | null>(null);
+  const [selectedObjects, setSelectedObjects] = useState<SegmentObject[]>([]);
   const [isSegmenting, setIsSegmenting] = useState<boolean>(false);
   const [segmentationError, setSegmentationError] = useState<string | null>(null);
   
@@ -137,6 +198,7 @@ const App: React.FC = () => {
     // Reset transient states after an action
     setCrop(undefined);
     setCompletedCrop(undefined);
+    setSelectedObjects([]);
   }, [history, historyIndex]);
 
   const handleImageUpload = useCallback(async (file: File) => {
@@ -153,11 +215,12 @@ const App: React.FC = () => {
     setIsSegmenting(true);
     setSegmentationError(null);
     setSegmentObjects([]);
-    setSelectedObject(null);
+    setSelectedObjects([]);
     
     try {
       const objects = await segmentImage(file);
-      setSegmentObjects(objects);
+      const alignedObjects = await alignMasksToOriginal(objects, file);
+      setSegmentObjects(alignedObjects);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '图片分割失败';
       setSegmentationError(errorMessage);
@@ -178,8 +241,8 @@ const App: React.FC = () => {
       return;
     }
 
-    if (!selectedObject) {
-      setError('请选择一个物体进行编辑。');
+    if (selectedObjects.length === 0) {
+      setError('请选择至少一个物体进行编辑。');
       return;
     }
 
@@ -187,13 +250,14 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      // Use the maskFile directly from selectedObject
-      const editedImageUrl = await generateEditedImage(currentImage, prompt, selectedObject.maskFile);
+      const maskFiles = selectedObjects.map(obj => obj.maskFile);
+      const combinedMask = await combineMaskFiles(maskFiles);
+      const editedImageUrl = await generateEditedImage(currentImage, prompt, combinedMask);
       const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
       addImageToHistory(newImageFile);
       
       // Clear selection after successful edit
-      setSelectedObject(null);
+      setSelectedObjects([]);
       setPrompt('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '发生未知错误。';
@@ -202,7 +266,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentImage, prompt, selectedObject, addImageToHistory]);
+  }, [currentImage, prompt, selectedObjects, addImageToHistory]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -273,12 +337,14 @@ const App: React.FC = () => {
   const handleUndo = useCallback(() => {
     if (canUndo) {
       setHistoryIndex(historyIndex - 1);
+      setSelectedObjects([]);
     }
   }, [canUndo, historyIndex]);
   
   const handleRedo = useCallback(() => {
     if (canRedo) {
       setHistoryIndex(historyIndex + 1);
+      setSelectedObjects([]);
     }
   }, [canRedo, historyIndex]);
 
@@ -286,6 +352,7 @@ const App: React.FC = () => {
     if (history.length > 0) {
       setHistoryIndex(0);
       setError(null);
+      setSelectedObjects([]);
     }
   }, [history]);
 
@@ -358,11 +425,12 @@ const App: React.FC = () => {
     setIsSegmenting(true);
     setSegmentationError(null);
     setSegmentObjects([]);
-    setSelectedObject(null);
+    setSelectedObjects([]);
     
     try {
       const objects = await segmentImage(currentImage);
-      setSegmentObjects(objects);
+      const alignedObjects = await alignMasksToOriginal(objects, currentImage);
+      setSegmentObjects(alignedObjects);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '图片分割失败';
       setSegmentationError(errorMessage);
@@ -395,8 +463,16 @@ const App: React.FC = () => {
             imageRef={imgRef}
             imageUrl={currentImageUrl}
             objects={segmentObjects}
-            selectedObject={selectedObject}
-            onSelectObject={setSelectedObject}
+            selectedObjects={selectedObjects}
+            onToggleObject={(object) => {
+              setSelectedObjects(prev => {
+                const exists = prev.some(item => item.id === object.id);
+                if (exists) {
+                  return prev.filter(item => item.id !== object.id);
+                }
+                return [...prev, object];
+              });
+            }}
             isActive={!isLoading && !isSegmenting}
           />
         )}
@@ -481,10 +557,11 @@ const App: React.FC = () => {
             onPromptChange={setPrompt}
             onGenerate={handleGenerate}
             onResegment={handleResegment}
-            onClearSelection={() => setSelectedObject(null)}
+            onClearSelection={() => setSelectedObjects([])}
+            onRemoveSelected={(id) => setSelectedObjects(prev => prev.filter(obj => obj.id !== id))}
             isLoading={isLoading}
             isSegmenting={isSegmenting}
-            hasSelectedObject={!!selectedObject}
+            selectedObjects={selectedObjects}
             segmentationError={segmentationError}
             objectCount={segmentObjects.length}
           />

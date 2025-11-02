@@ -10,8 +10,8 @@ interface ObjectSelectCanvasProps {
   imageRef: React.RefObject<HTMLImageElement>;
   imageUrl: string;
   objects: SegmentObject[];
-  selectedObject: SegmentObject | null;
-  onSelectObject: (object: SegmentObject) => void;
+  selectedObjects: SegmentObject[];
+  onToggleObject: (object: SegmentObject) => void;
   isActive: boolean;
 }
 
@@ -19,8 +19,8 @@ const ObjectSelectCanvas: React.FC<ObjectSelectCanvasProps> = ({
   imageRef,
   imageUrl,
   objects,
-  selectedObject,
-  onSelectObject,
+  selectedObjects,
+  onToggleObject,
   isActive
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,7 +46,7 @@ const ObjectSelectCanvas: React.FC<ObjectSelectCanvasProps> = ({
     
     // 绘制所有物体的高亮
     objects.forEach(obj => {
-      const isSelected = obj.id === selectedObject?.id;
+      const isSelected = selectedObjects.some(item => item.id === obj.id);
       const isHovered = obj.id === hoveredId;
       
       if (isSelected || isHovered) {
@@ -56,7 +56,7 @@ const ObjectSelectCanvas: React.FC<ObjectSelectCanvasProps> = ({
         drawObjectBorder(ctx, obj, img);
       }
     });
-  }, [objects, selectedObject, hoveredId, imageUrl, isActive, imageRef]);
+  }, [objects, selectedObjects, hoveredId, imageUrl, isActive, imageRef]);
 
   // 检测点击了哪个物体
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -70,22 +70,26 @@ const ObjectSelectCanvas: React.FC<ObjectSelectCanvasProps> = ({
     const y = (e.clientY - rect.top) * scaleY;
     
     // 检测点击位置是否在某个物体的 box 内
-    const clickedObject = objects.find(obj => {
-      const [ymin, xmin, ymax, xmax] = obj.box;
-      const w = canvas.width;
-      const h = canvas.height;
-      
-      const boxX = (xmin / 1000) * w;
-      const boxY = (ymin / 1000) * h;
-      const boxW = ((xmax - xmin) / 1000) * w;
-      const boxH = ((ymax - ymin) / 1000) * h;
-      
-      return x >= boxX && x <= boxX + boxW && 
-             y >= boxY && y <= boxY + boxH;
-    });
+    const candidateObjects = objects
+      .filter(obj => {
+        const [ymin, xmin, ymax, xmax] = obj.box;
+        const w = canvas.width;
+        const h = canvas.height;
+
+        const boxX = (xmin / 1000) * w;
+        const boxY = (ymin / 1000) * h;
+        const boxW = ((xmax - xmin) / 1000) * w;
+        const boxH = ((ymax - ymin) / 1000) * h;
+
+        return x >= boxX && x <= boxX + boxW && 
+               y >= boxY && y <= boxY + boxH;
+      })
+      .sort((a, b) => calculateBoxArea(a) - calculateBoxArea(b));
+
+    const clickedObject = candidateObjects[0];
     
     if (clickedObject) {
-      onSelectObject(clickedObject);
+      onToggleObject(clickedObject);
     }
   };
 
@@ -100,21 +104,23 @@ const ObjectSelectCanvas: React.FC<ObjectSelectCanvasProps> = ({
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
     
-    const hoveredObject = objects.find(obj => {
-      const [ymin, xmin, ymax, xmax] = obj.box;
-      const w = canvas.width;
-      const h = canvas.height;
-      
-      const boxX = (xmin / 1000) * w;
-      const boxY = (ymin / 1000) * h;
-      const boxW = ((xmax - xmin) / 1000) * w;
-      const boxH = ((ymax - ymin) / 1000) * h;
-      
-      return x >= boxX && x <= boxX + boxW && 
-             y >= boxY && y <= boxY + boxH;
-    });
-    
-    setHoveredId(hoveredObject?.id || null);
+    const hoveredObject = objects
+      .filter(obj => {
+        const [ymin, xmin, ymax, xmax] = obj.box;
+        const w = canvas.width;
+        const h = canvas.height;
+
+        const boxX = (xmin / 1000) * w;
+        const boxY = (ymin / 1000) * h;
+        const boxW = ((xmax - xmin) / 1000) * w;
+        const boxH = ((ymax - ymin) / 1000) * h;
+
+        return x >= boxX && x <= boxX + boxW && 
+               y >= boxY && y <= boxY + boxH;
+      })
+      .sort((a, b) => calculateBoxArea(a) - calculateBoxArea(b));
+
+    setHoveredId(hoveredObject[0]?.id || null);
   };
 
   const handleMouseLeave = () => {
@@ -193,3 +199,8 @@ function drawObjectBorder(
 }
 
 export default ObjectSelectCanvas;
+
+function calculateBoxArea(obj: SegmentObject): number {
+  const [ymin, xmin, ymax, xmax] = obj.box;
+  return Math.max((ymax - ymin) * (xmax - xmin), 0);
+}

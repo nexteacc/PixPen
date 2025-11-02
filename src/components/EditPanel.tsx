@@ -4,6 +4,7 @@
 */
 
 import React from 'react';
+import type { SegmentObject } from '../types/segmentation';
 
 interface EditPanelProps {
   prompt: string;
@@ -11,9 +12,10 @@ interface EditPanelProps {
   onGenerate: () => void;
   onResegment: () => void;
   onClearSelection: () => void;
+  onRemoveSelected: (id: string) => void;
   isLoading: boolean;
   isSegmenting: boolean;
-  hasSelectedObject: boolean;
+  selectedObjects: SegmentObject[];
   segmentationError: string | null;
   objectCount: number;
 }
@@ -24,15 +26,16 @@ const EditPanel: React.FC<EditPanelProps> = ({
   onGenerate,
   onResegment,
   onClearSelection,
+  onRemoveSelected,
   isLoading,
   isSegmenting,
-  hasSelectedObject,
+  selectedObjects,
   segmentationError,
   objectCount
 }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (prompt.trim() && hasSelectedObject) {
+    if (prompt.trim() && selectedObjects.length > 0) {
       onGenerate();
     }
   };
@@ -40,12 +43,6 @@ const EditPanel: React.FC<EditPanelProps> = ({
   return (
     <div className="flex flex-col gap-3">
       {/* 分割状态信息 */}
-      {objectCount > 0 && (
-        <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 border border-gray-200">
-          <p>✅ 已识别 {objectCount} 个物体</p>
-        </div>
-      )}
-      
       {segmentationError && (
         <div className="text-xs text-red-600 bg-red-50 rounded-lg p-2 border border-red-200">
           <p>❌ {segmentationError}</p>
@@ -65,26 +62,41 @@ const EditPanel: React.FC<EditPanelProps> = ({
       )}
 
       {/* 编辑区域 */}
-      {!hasSelectedObject ? (
+      {selectedObjects.length === 0 ? (
         <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
-          <p className="text-sm">👆 点击图片中的物体开始编辑</p>
+          <p className="text-sm">👆 点击图片中的物体开始编辑，可选择多个目标</p>
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2">
             <p className="text-xs text-gray-600 leading-snug">
-              ✅ 已选中物体，描述你想要的修改
+              ✅ 已选中 {selectedObjects.length} 个物体，描述你想要的修改
             </p>
-            <button
-              type="button"
-              onClick={onClearSelection}
-              className="text-xs text-gray-500 hover:text-gray-700 underline"
-            >
-              清除选择
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {selectedObjects.map((obj, index) => (
+                <button
+                  key={obj.id}
+                  type="button"
+                  onClick={() => onRemoveSelected(obj.id)}
+                  className="flex items-center gap-1 rounded-full bg-blue-100 text-blue-700 px-3 py-1 text-xs font-medium hover:bg-blue-200 transition"
+                >
+                  <span>{`物体 ${index + 1}`}</span>
+                  <span aria-hidden="true">×</span>
+                </button>
+              ))}
+            </div>
           </div>
-          
+
           <form onSubmit={handleSubmit} className="w-full flex flex-col gap-2.5">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onClearSelection}
+                className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+              >
+                ✕ 清除全部
+              </button>
+            </div>
             <div className="w-full bg-white border border-gray-300 rounded-lg overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition">
               <textarea
                 value={prompt}
