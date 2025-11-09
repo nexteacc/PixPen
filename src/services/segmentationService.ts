@@ -296,7 +296,7 @@ export async function alignMasksToOriginal(
     const targetHeight = originalImg.naturalHeight || originalImg.height;
 
     if (!targetWidth || !targetHeight) {
-        throw new Error('无法获取原图尺寸，无法对齐掩码。');
+        throw new Error('Unable to read the original image dimensions, so the masks cannot be aligned.');
     }
 
     return Promise.all(objects.map(async (obj, index) => {
@@ -309,7 +309,7 @@ export async function alignMasksToOriginal(
         const height = Math.max(1, Math.round(((ymax - ymin) / 1000) * targetHeight));
 
         if (x >= targetWidth || y >= targetHeight || width <= 0 || height <= 0) {
-            throw new Error(`掩码边界框无效：${obj.id}`);
+            throw new Error(`Invalid mask bounding box: ${obj.id}`);
         }
 
         const maskCanvas = document.createElement('canvas');
@@ -318,7 +318,7 @@ export async function alignMasksToOriginal(
         const maskCtx = maskCanvas.getContext('2d');
 
         if (!maskCtx) {
-            throw new Error('无法创建掩码处理画布上下文。');
+            throw new Error('Unable to create a canvas context for mask processing.');
         }
 
         maskCtx.imageSmoothingEnabled = true;
@@ -348,7 +348,7 @@ export async function alignMasksToOriginal(
         const ctx = canvas.getContext('2d');
 
         if (!ctx) {
-            throw new Error('无法创建用于缩放掩码的画布上下文。');
+            throw new Error('Unable to create a canvas context for scaling the mask.');
         }
 
         ctx.imageSmoothingEnabled = false;
@@ -360,7 +360,7 @@ export async function alignMasksToOriginal(
         const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
 
         if (!blob) {
-            throw new Error('无法生成对齐后的掩码文件。');
+            throw new Error('Unable to generate the aligned mask file.');
         }
 
         const scaledFileName = obj.maskFile.name || `mask_${index}.png`;

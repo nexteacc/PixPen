@@ -9,7 +9,6 @@ import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { generateEditedImage, generateFilteredImage } from './services/geminiService';
 import { segmentImage, alignMasksToOriginal } from './src/services/segmentationService';
 import type { SegmentObject } from './src/types/segmentation';
-import Header from './components/Header';
 import FilterPanel from './components/FilterPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon } from './components/icons';
@@ -66,7 +65,7 @@ const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   const height = baseImage.naturalHeight || baseImage.height;
 
   if (!width || !height) {
-    throw new Error('无法读取掩码尺寸。');
+    throw new Error('Unable to read mask dimensions.');
   }
 
   const canvas = document.createElement('canvas');
@@ -75,7 +74,7 @@ const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
-    throw new Error('无法创建掩码画布。');
+    throw new Error('Unable to create mask canvas.');
   }
 
   ctx.fillStyle = '#000000';
@@ -93,7 +92,7 @@ const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
 
   if (!blob) {
-    throw new Error('无法导出组合掩码。');
+    throw new Error('Unable to export combined mask.');
   }
 
   return new File([blob], `combined-mask-${Date.now()}.png`, { type: 'image/png' });
@@ -106,7 +105,7 @@ const createFullImageMask = async (imageFile: File): Promise<File> => {
   const height = image.naturalHeight || image.height;
 
   if (!width || !height) {
-    throw new Error('无法创建全图掩码，未知图像尺寸。');
+    throw new Error('Unable to create a full-image mask because the dimensions are unknown.');
   }
 
   const canvas = document.createElement('canvas');
@@ -115,7 +114,7 @@ const createFullImageMask = async (imageFile: File): Promise<File> => {
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
-    throw new Error('无法创建全图掩码画布。');
+    throw new Error('Unable to create a canvas for the full-image mask.');
   }
 
   ctx.fillStyle = '#ffffff';
@@ -124,7 +123,7 @@ const createFullImageMask = async (imageFile: File): Promise<File> => {
   const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
 
   if (!blob) {
-    throw new Error('无法导出全图掩码。');
+    throw new Error('Unable to export the full-image mask.');
   }
 
   return new File([blob], `full-mask-${Date.now()}.png`, { type: 'image/png' });
@@ -286,7 +285,7 @@ const App: React.FC = () => {
       const alignedObjects = await alignMasksToOriginal(objects, file);
       setSegmentObjects(alignedObjects);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '图片分割失败';
+      const errorMessage = err instanceof Error ? err.message : 'Image segmentation failed';
       setSegmentationError(errorMessage);
       console.error('❌ Segmentation error:', err);
     } finally {
@@ -296,17 +295,17 @@ const App: React.FC = () => {
 
   const handleGenerate = useCallback(async () => {
     if (!currentImage) {
-      setError('没有加载图片进行编辑。');
+      setError('No image loaded for editing.');
       return;
     }
 
     if (!prompt.trim()) {
-      setError('请输入编辑描述。');
+      setError('Please enter an edit description.');
       return;
     }
 
     if (editMode === 'precision' && selectedObjects.length === 0) {
-      setError('请选择至少一个物体进行编辑。');
+      setError('Select at least one object to edit.');
       return;
     }
 
@@ -330,8 +329,8 @@ const App: React.FC = () => {
       }
       setPrompt('');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '发生未知错误。';
-      setError(`生成图片失败。${errorMessage}`);
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      setError(`Failed to generate the image. ${errorMessage}`);
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -340,7 +339,7 @@ const App: React.FC = () => {
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
-      setError('没有加载图片以应用滤镜。');
+      setError('No image loaded to apply a filter.');
       return;
     }
     
@@ -352,8 +351,8 @@ const App: React.FC = () => {
         const newImageFile = dataURLtoFile(filteredImageUrl, `filtered-${Date.now()}.png`);
         addImageToHistory(newImageFile);
     } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '发生未知错误。';
-        setError(`应用滤镜失败。${errorMessage}`);
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to apply the filter. ${errorMessage}`);
         console.error(err);
     } finally {
         setIsLoading(false);
@@ -362,7 +361,7 @@ const App: React.FC = () => {
   
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
-        setError('请选择要裁剪的区域。');
+        setError('Select an area to crop.');
         return;
     }
 
@@ -376,7 +375,7 @@ const App: React.FC = () => {
     const ctx = canvas.getContext('2d');
 
     if (!ctx) {
-        setError('无法处理裁剪。');
+        setError('Unable to process the crop.');
         return;
     }
 
@@ -502,7 +501,7 @@ const App: React.FC = () => {
       const alignedObjects = await alignMasksToOriginal(objects, currentImage);
       setSegmentObjects(alignedObjects);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '图片分割失败';
+      const errorMessage = err instanceof Error ? err.message : 'Image segmentation failed';
       setSegmentationError(errorMessage);
       console.error('Segmentation error:', err);
     } finally {
@@ -574,8 +573,8 @@ const App: React.FC = () => {
 
     return (
       <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
-        {isLoading && <LoadingOverlay message="AI 正在施展魔法..." />}
-        {isSegmenting && <LoadingOverlay message="正在分析图片物体..." />}
+        {isLoading && <LoadingOverlay message="AI is working its magic..." />}
+        {isSegmenting && <LoadingOverlay message="Analyzing objects in the image..." />}
 
         {activeTab === 'crop' ? (
           <div className="w-full flex justify-center">
@@ -823,7 +822,6 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen text-gray-900 bg-white flex flex-col">
-      {!isEditing && <Header />}
       {!isEditing && (
         <div className="flex items-center justify-center py-2">
           <img

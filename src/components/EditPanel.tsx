@@ -34,8 +34,8 @@ interface EditPanelProps {
 }
 
 const MODE_OPTIONS: Array<{ value: EditMode; label: string; description: string }> = [
-  { value: 'precision', label: '精准选区', description: '圈选具体物体，精准控制局部内容。' },
-  { value: 'chat', label: '聊天改图', description: '无需选区，直接用一句话改整张图。' },
+  { value: 'precision', label: 'Precise Select', description: 'Choose exact objects for pixel-level control.' },
+  { value: 'chat', label: 'Chat Edit', description: 'Skip selections and edit the entire image with one prompt.' },
 ];
 
 const EditPanel: React.FC<EditPanelProps> = ({
@@ -72,7 +72,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
             onClick={onClearSelection}
             className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
           >
-            ✕ 清除全部
+            ✕ Clear all
           </button>
         </div>
       )}
@@ -80,7 +80,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
         <textarea
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
-          placeholder="例如：改成红色、变成蓝色、换成一只狗..."
+          placeholder="e.g., make it red, turn it blue, replace it with a dog..."
           className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60 min-h-24 leading-relaxed"
           disabled={isLoading}
           rows={4}
@@ -91,7 +91,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
         className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-4 text-sm rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
         disabled={isLoading || !prompt.trim() || (isPrecisionMode && selectedObjects.length === 0)}
       >
-        {isLoading ? 'AI 生成中...' : '生成'}
+        {isLoading ? 'AI is generating...' : 'Generate'}
       </button>
     </form>
   );
@@ -133,7 +133,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
                 onClick={() => onEditModeChange('chat')}
                 className="self-start inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50"
               >
-                → 改用聊天改图
+                → Switch to Chat Edit
               </button>
             </div>
           )}
@@ -145,23 +145,23 @@ const EditPanel: React.FC<EditPanelProps> = ({
               disabled={isSegmenting}
               className="w-full text-center bg-gray-50 border border-gray-200 text-gray-700 font-semibold rounded-md py-2 px-3 text-sm transition-all duration-200 ease-in-out hover:bg-gray-100 hover:border-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSegmenting ? '重新分析中...' : '重新分割'}
+              {isSegmenting ? 'Reanalyzing...' : 'Resegment'}
             </button>
           )}
 
           {selectedObjects.length === 0 ? (
             <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
-              <p className="text-sm">👆 点击图片中的物体开始编辑，可选择多个目标</p>
+              <p className="text-sm">👆 Click objects in the image to start editing. Multiple selections are allowed.</p>
             </div>
           ) : (
             <>
               <div className="flex flex-col gap-2">
                 <p className="text-xs text-gray-600 leading-snug">
-                  ✅ 已选中 {selectedObjects.length} 个物体，描述你想要的修改
+                  ✅ Selected {selectedObjects.length} objects. Describe the change you want.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {selectedObjects.map((obj, index) => {
-                    const label = obj.label?.trim() || '未命名物体';
+                    const label = obj.label?.trim() || 'Unnamed object';
                     const number = getObjectDisplayNumber(obj, index + 1);
                     const title = `#${number} ${label}`;
                     return (
@@ -187,7 +187,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
       {!isPrecisionMode && (
         <>
           <div className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-3 leading-relaxed">
-            💬 聊天改图：直接输入你想要的效果，例如“把它改成赛博朋克风格”或“让天空更通透明亮”，AI 会基于整张图片进行修改。
+            💬 Chat Edit: Enter the effect you want—e.g., “make it cyberpunk” or “brighten the sky”—and the AI will edit the entire image.
           </div>
           {renderPromptForm(false)}
         </>
