@@ -11,6 +11,7 @@ export interface SegmentObject {
   box: [number, number, number, number];   // [ymin, xmin, ymax, xmax] 归一化坐标 (0-1000)
   mask: string;                            // base64 PNG 掩码
   maskFile: File;                          // 转换后的 File 对象
+  label?: string;                          // 可选：模型返回的目标标签
 }
 
 /**

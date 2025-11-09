@@ -54,29 +54,84 @@ async function resizeAndCompressImage(file: File): Promise<File> {
     });
 }
 
-/**
- * 从 API 响应中提取 box_2d 和 mask（复用 gemini-mask.html 的逻辑）
- */
-function extractBoxAndMask(text: string): Array<{ box: number[], mask: string }> {
-    const regex = /"box_2d"\s*:\s*\[\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\]\s*,\s*"mask"\s*:\s*"(data:image\/png;base64,[^"]+)"/g;
-    const results: Array<{ box: number[], mask: string }> = [];
+type RawSegment = {
+    box_2d?: number[];
+    mask?: string;
+    label?: string;
+};
+
+const DEFAULT_MASK_THRESHOLD = 127;
+
+const stripMarkdownFence = (payload: string): string => {
+    const trimmed = payload.trim();
+    const jsonFenceIndex = trimmed.indexOf('```json');
+    if (jsonFenceIndex !== -1) {
+        const afterFence = trimmed.slice(jsonFenceIndex + 7);
+        const closingFence = afterFence.indexOf('```');
+        return (closingFence !== -1 ? afterFence.slice(0, closingFence) : afterFence).trim();
+    }
+
+    const genericFenceIndex = trimmed.indexOf('```');
+    if (genericFenceIndex !== -1) {
+        const afterFence = trimmed.slice(genericFenceIndex + 3);
+        const closingFence = afterFence.indexOf('```');
+        return (closingFence !== -1 ? afterFence.slice(0, closingFence) : afterFence).trim();
+    }
+
+    return trimmed;
+};
+
+const extractSegmentsWithRegex = (text: string): Array<{ box: number[]; mask: string; label?: string }> => {
+    const regex = /"box_2d"\s*:\s*\[\s*(\d+(?:\s*,\s*\d+){3})\s*\]\s*,[^}]*?"mask"\s*:\s*"(data:image\/png;base64,[^"]+)"/g;
+    const labelRegex = /"label"\s*:\s*"([^"]+)"/;
+    const results: Array<{ box: number[]; mask: string; label?: string }> = [];
     let match;
 
     while ((match = regex.exec(text)) !== null) {
-        try {
-            const snippet = text.substring(match.index, match.index + 200);
-            const boxMatch = snippet.match(/"box_2d"\s*:\s*(\[\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\])/);
-            if (boxMatch && boxMatch[1]) {
-                const box = JSON.parse(boxMatch[1]);
-                const mask = match[1];
-                results.push({ box, mask });
-            }
-        } catch (e) {
-            // Skip invalid entries
-        }
+        const boxValues = match[1]
+            .split(',')
+            .map(value => Number(value.trim()))
+            .filter(Number.isFinite);
+
+        if (boxValues.length !== 4) continue;
+
+        const mask = match[2];
+        const surroundingSnippet = text.slice(match.index, Math.min(text.length, match.index + 400));
+        const labelMatch = surroundingSnippet.match(labelRegex);
+
+        results.push({
+            box: boxValues as [number, number, number, number],
+            mask,
+            label: labelMatch?.[1],
+        });
     }
+
     return results;
-}
+};
+
+const parseSegmentationResponse = (responseText: string): Array<{ box: number[]; mask: string; label?: string }> => {
+    if (!responseText) {
+        return [];
+    }
+
+    const trimmedPayload = stripMarkdownFence(responseText);
+
+    try {
+        const parsed = JSON.parse(trimmedPayload) as RawSegment[] | RawSegment;
+        const entries = Array.isArray(parsed) ? parsed : [parsed];
+
+        return entries
+            .map(entry => ({
+                box: entry.box_2d ?? [],
+                mask: entry.mask ?? '',
+                label: entry.label,
+            }))
+            .filter(item => item.box.length === 4 && item.mask);
+    } catch {
+        // Fall back to regex extraction when JSON parsing fails
+        return extractSegmentsWithRegex(responseText);
+    }
+};
 
 /**
  * 将 data URL 转换为 File 对象
@@ -174,15 +229,18 @@ Output a JSON list of segmentation masks where each entry contains the 2D boundi
     });
     
     // 3. 解析返回的 JSON
-    const boxes = extractBoxAndMask(response.text);
+    const segments = parseSegmentationResponse((response.text ?? '').toString());
     
-    if (boxes.length === 0) {
+    if (segments.length === 0) {
         throw new Error('No objects detected in the image. The API response may be in an unexpected format.');
     }
     
     // 4. 转换为 SegmentObject 格式
-    const objects: SegmentObject[] = boxes.map((item, index) => {
-        const maskFile = dataURLtoFile(item.mask, `mask_${index}.png`);
+    const objects: SegmentObject[] = segments.map((item, index) => {
+        const maskDataUrl = item.mask.startsWith('data:image/png;base64,')
+            ? item.mask
+            : `data:image/png;base64,${item.mask}`;
+        const maskFile = dataURLtoFile(maskDataUrl, `mask_${index}.png`);
         
         // 验证掩码文件
         if (!validateMaskFile(maskFile)) {
@@ -192,8 +250,9 @@ Output a JSON list of segmentation masks where each entry contains the 2D boundi
         return {
             id: `obj_${index}`,
             box: item.box as [number, number, number, number],
-            mask: item.mask,
-            maskFile
+            mask: maskDataUrl,
+            maskFile,
+            label: item.label,
         };
     });
     
@@ -223,10 +282,45 @@ export async function alignMasksToOriginal(
     return Promise.all(objects.map(async (obj, index) => {
         const maskDataUrl = await fileToDataURL(obj.maskFile);
         const maskImg = await loadImage(maskDataUrl);
+        const [ymin, xmin, ymax, xmax] = obj.box;
+        const x = Math.round((xmin / 1000) * targetWidth);
+        const y = Math.round((ymin / 1000) * targetHeight);
+        const width = Math.max(1, Math.round(((xmax - xmin) / 1000) * targetWidth));
+        const height = Math.max(1, Math.round(((ymax - ymin) / 1000) * targetHeight));
 
-        if (!maskImg.naturalWidth || !maskImg.naturalHeight) {
-            throw new Error(`无法读取掩码尺寸：${obj.id}`);
+        if (x >= targetWidth || y >= targetHeight || width <= 0 || height <= 0) {
+            throw new Error(`掩码边界框无效：${obj.id}`);
         }
+
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = width;
+        maskCanvas.height = height;
+        const maskCtx = maskCanvas.getContext('2d');
+
+        if (!maskCtx) {
+            throw new Error('无法创建掩码处理画布上下文。');
+        }
+
+        maskCtx.imageSmoothingEnabled = true;
+        maskCtx.drawImage(maskImg, 0, 0, width, height);
+
+        const imageData = maskCtx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const average = (r + g + b) / 3;
+            const binary = average > DEFAULT_MASK_THRESHOLD ? 255 : 0;
+
+            data[i] = binary;
+            data[i + 1] = binary;
+            data[i + 2] = binary;
+            data[i + 3] = binary;
+        }
+
+        maskCtx.putImageData(imageData, 0, 0);
 
         const canvas = document.createElement('canvas');
         canvas.width = targetWidth;
@@ -238,17 +332,9 @@ export async function alignMasksToOriginal(
         }
 
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(
-            maskImg,
-            0,
-            0,
-            maskImg.naturalWidth,
-            maskImg.naturalHeight,
-            0,
-            0,
-            targetWidth,
-            targetHeight,
-        );
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        ctx.drawImage(maskCanvas, x, y);
 
         const scaledDataUrl = canvas.toDataURL('image/png');
         const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));

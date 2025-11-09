@@ -99,8 +99,40 @@ const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   return new File([blob], `combined-mask-${Date.now()}.png`, { type: 'image/png' });
 };
 
+const createFullImageMask = async (imageFile: File): Promise<File> => {
+  const dataUrl = await fileToDataURL(imageFile);
+  const image = await loadImage(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+
+  if (!width || !height) {
+    throw new Error('无法创建全图掩码，未知图像尺寸。');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error('无法创建全图掩码画布。');
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+
+  if (!blob) {
+    throw new Error('无法导出全图掩码。');
+  }
+
+  return new File([blob], `full-mask-${Date.now()}.png`, { type: 'image/png' });
+};
+
 type Tab = 'retouch' | 'crop'; // 'filters' disabled
 type LayoutMode = 'vertical' | 'rightDock' | 'leftDock';
+type EditMode = 'precision' | 'chat';
 
 type LayoutOption = {
   value: LayoutMode;
@@ -132,6 +164,7 @@ const App: React.FC = () => {
   // const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
   // const [brushSize, setBrushSize] = useState<number>(40);
   const [layout, setLayout] = useState<LayoutMode>('rightDock');
+  const [editMode, setEditMode] = useState<EditMode>('precision');
   
   // Object selection states
   const [segmentObjects, setSegmentObjects] = useState<SegmentObject[]>([]);
@@ -241,7 +274,7 @@ const App: React.FC = () => {
       return;
     }
 
-    if (selectedObjects.length === 0) {
+    if (editMode === 'precision' && selectedObjects.length === 0) {
       setError('请选择至少一个物体进行编辑。');
       return;
     }
@@ -250,14 +283,17 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const maskFiles = selectedObjects.map(obj => obj.maskFile);
-      const combinedMask = await combineMaskFiles(maskFiles);
-      const editedImageUrl = await generateEditedImage(currentImage, prompt, combinedMask);
+      const maskFile = editMode === 'precision'
+        ? await combineMaskFiles(selectedObjects.map(obj => obj.maskFile))
+        : await createFullImageMask(currentImage);
+      const editedImageUrl = await generateEditedImage(currentImage, prompt, maskFile);
       const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
       addImageToHistory(newImageFile);
       
       // Clear selection after successful edit
-      setSelectedObjects([]);
+      if (editMode === 'precision') {
+        setSelectedObjects([]);
+      }
       setPrompt('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '发生未知错误。';
@@ -266,7 +302,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentImage, prompt, selectedObjects, addImageToHistory]);
+  }, [currentImage, prompt, selectedObjects, editMode, addImageToHistory]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -458,7 +494,7 @@ const App: React.FC = () => {
           alt="Current"
           className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out pointer-events-none ${isComparing ? 'opacity-0' : 'opacity-100'}`}
         />
-        {currentImageUrl && activeTab === 'retouch' && !isComparing && (
+        {currentImageUrl && activeTab === 'retouch' && !isComparing && editMode === 'precision' && (
           <ObjectSelectCanvas
             imageRef={imgRef}
             imageUrl={currentImageUrl}
@@ -553,6 +589,8 @@ const App: React.FC = () => {
       <div className="w-full">
         {activeTab === 'retouch' && (
           <EditPanel
+            editMode={editMode}
+            onEditModeChange={setEditMode}
             prompt={prompt}
             onPromptChange={setPrompt}
             onGenerate={handleGenerate}
