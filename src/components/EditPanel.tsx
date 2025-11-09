@@ -8,6 +8,15 @@ import type { SegmentObject } from '../types/segmentation';
 
 type EditMode = 'precision' | 'chat';
 
+const getObjectDisplayNumber = (obj: SegmentObject, fallback: number): number => {
+  const match = obj.id.match(/obj_(\d+)/);
+  if (match) {
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed + 1 : fallback;
+  }
+  return fallback;
+};
+
 interface EditPanelProps {
   editMode: EditMode;
   onEditModeChange: (mode: EditMode) => void;
@@ -117,8 +126,15 @@ const EditPanel: React.FC<EditPanelProps> = ({
       {isPrecisionMode && (
         <>
           {segmentationError && (
-            <div className="text-xs text-red-600 bg-red-50 rounded-lg p-2 border border-red-200">
+            <div className="text-xs text-red-600 bg-red-50 rounded-lg p-2 border border-red-200 flex flex-col gap-1.5">
               <p>❌ {segmentationError}</p>
+              <button
+                type="button"
+                onClick={() => onEditModeChange('chat')}
+                className="self-start inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50"
+              >
+                → 改用聊天改图
+              </button>
             </div>
           )}
 
@@ -144,17 +160,22 @@ const EditPanel: React.FC<EditPanelProps> = ({
                   ✅ 已选中 {selectedObjects.length} 个物体，描述你想要的修改
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {selectedObjects.map((obj, index) => (
+                  {selectedObjects.map((obj, index) => {
+                    const label = obj.label?.trim() || '未命名物体';
+                    const number = getObjectDisplayNumber(obj, index + 1);
+                    const title = `#${number} ${label}`;
+                    return (
                     <button
                       key={obj.id}
                       type="button"
                       onClick={() => onRemoveSelected(obj.id)}
                       className="flex items-center gap-1 rounded-full bg-blue-100 text-blue-700 px-3 py-1 text-xs font-medium hover:bg-blue-200 transition"
                     >
-                      <span>{`物体 ${index + 1}`}</span>
+                      <span>{title}</span>
                       <span aria-hidden="true">×</span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               {renderPromptForm(true)}

@@ -61,6 +61,13 @@ type RawSegment = {
 };
 
 const DEFAULT_MASK_THRESHOLD = 127;
+const SEGMENTATION_PROMPT = `You are a precise segmentation assistant for both real and synthetic photos.
+Return a JSON array where each entry contains:
+- "box_2d": [y0, x0, y1, x1] using normalized coordinates between 0 and 1000 (top-left to bottom-right).
+- "mask": base64 PNG probability map for that object.
+- "label": a short descriptive English name (e.g., "wooden chair", "glass vase").
+
+Only include visually distinct objects with valid bounding boxes. Omit duplicates or overlapping detections.`;
 
 const stripMarkdownFence = (payload: string): string => {
     const trimmed = payload.trim();
@@ -204,6 +211,16 @@ function validateMaskFile(maskFile: File): boolean {
     return true;
 }
 
+const isValidNormalizedBox = (box: number[]): box is [number, number, number, number] => {
+    if (box.length !== 4) return false;
+    const [ymin, xmin, ymax, xmax] = box;
+    const values = [ymin, xmin, ymax, xmax];
+    if (values.some(value => !Number.isFinite(value) || value < 0 || value > 1000)) {
+        return false;
+    }
+    return ymin < ymax && xmin < xmax;
+};
+
 /**
  * 自动分割图片，返回所有可选物体
  */
@@ -215,21 +232,24 @@ export async function segmentImage(imageFile: File): Promise<SegmentObject[]> {
     const imagePart = await fileToPart(compressed);
     
     // 2. 调用 Gemini API（使用 gemini-mask.html 验证过的 prompt）
-    const prompt = `Give the segmentation masks for the objects. 
-Output a JSON list of segmentation masks where each entry contains the 2D bounding box in "box_2d" and the mask in "mask".`;
+    const textPart = { text: SEGMENTATION_PROMPT };
     
-    const textPart = { text: prompt };
-
     // 使用支持分割的模型（与 gemini-mask.html 一致）
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: {
             parts: [textPart, imagePart]
-        }
+        },
+        config: {
+            thinkingConfig: {
+                thinkingBudget: 0,
+            },
+        },
     });
     
     // 3. 解析返回的 JSON
-    const segments = parseSegmentationResponse((response.text ?? '').toString());
+    const segments = parseSegmentationResponse((response.text ?? '').toString())
+        .filter(segment => isValidNormalizedBox(segment.box));
     
     if (segments.length === 0) {
         throw new Error('No objects detected in the image. The API response may be in an unexpected format.');

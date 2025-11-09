@@ -130,6 +130,37 @@ const createFullImageMask = async (imageFile: File): Promise<File> => {
   return new File([blob], `full-mask-${Date.now()}.png`, { type: 'image/png' });
 };
 
+const formatObjectNumber = (id: string, fallbackIndex: number): number => {
+  const match = id.match(/obj_(\d+)/);
+  if (match) {
+    const parsed = Number(match[1]);
+    if (Number.isFinite(parsed)) {
+      return parsed + 1;
+    }
+  }
+  return fallbackIndex + 1;
+};
+
+const buildPrecisionPrompt = (basePrompt: string, objects: SegmentObject[]): string => {
+  if (objects.length === 0) {
+    return basePrompt.trim();
+  }
+
+  const lines = objects.map((obj, index) => {
+    const number = formatObjectNumber(obj.id, index);
+    const label = obj.label?.trim() || 'Unnamed object';
+    const box = obj.box.map(value => Math.round(value)).join(', ');
+    return `#${number}: ${label} (box_2d: [${box}])`;
+  });
+
+  return `${basePrompt.trim()}
+
+---
+Selected objects (edit only these, keep all other pixels identical):
+${lines.join('\n')}
+If the user instruction omits a subject, apply it uniformly to the listed objects only.`;
+};
+
 type Tab = 'retouch' | 'crop'; // 'filters' disabled
 type LayoutMode = 'vertical' | 'rightDock' | 'leftDock';
 type EditMode = 'precision' | 'chat';
@@ -286,7 +317,10 @@ const App: React.FC = () => {
       const maskFile = editMode === 'precision'
         ? await combineMaskFiles(selectedObjects.map(obj => obj.maskFile))
         : await createFullImageMask(currentImage);
-      const editedImageUrl = await generateEditedImage(currentImage, prompt, maskFile);
+      const finalPrompt = editMode === 'precision'
+        ? buildPrecisionPrompt(prompt, selectedObjects)
+        : prompt.trim();
+      const editedImageUrl = await generateEditedImage(currentImage, finalPrompt, maskFile);
       const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
       addImageToHistory(newImageFile);
       
