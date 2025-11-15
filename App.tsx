@@ -360,11 +360,6 @@ const App: React.FC = () => {
       const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
       addImageToHistory(newImageFile);
       
-      // Clear selection after successful edit
-      if (editMode === 'precision') {
-        setSelectedObjects([]);
-      }
-      setPrompt('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
       setError(`Failed to generate the image. ${errorMessage}`);
