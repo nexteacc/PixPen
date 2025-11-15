@@ -55,6 +55,70 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
   });
 };
 
+const convertCropValueToPixels = (
+  value: number | undefined,
+  unit: '%' | 'px' | undefined,
+  total: number,
+): number => {
+  if (!value || total <= 0) return 0;
+  if (unit === '%') {
+    return (value / 100) * total;
+  }
+  return value;
+};
+
+type CropOverlayMetrics = {
+  label: string;
+  left: number;
+  top: number;
+  translateX: string;
+  translateY: string;
+};
+
+const getCropOverlayMetrics = (
+  currentCrop: Crop | undefined,
+  imageEl: HTMLImageElement | null,
+): CropOverlayMetrics | null => {
+  if (!currentCrop || !imageEl) {
+    return null;
+  }
+
+  const displayWidth = imageEl.width;
+  const displayHeight = imageEl.height;
+  const naturalWidth = imageEl.naturalWidth;
+  const naturalHeight = imageEl.naturalHeight;
+
+  if (!displayWidth || !displayHeight || !naturalWidth || !naturalHeight) {
+    return null;
+  }
+
+  const unit = currentCrop.unit;
+  const cropWidthPx = convertCropValueToPixels(currentCrop.width, unit, displayWidth);
+  const cropHeightPx = convertCropValueToPixels(currentCrop.height, unit, displayHeight);
+
+  if (cropWidthPx <= 0 || cropHeightPx <= 0) {
+    return null;
+  }
+
+  const xPx = convertCropValueToPixels(currentCrop.x, unit, displayWidth);
+  const yPx = convertCropValueToPixels(currentCrop.y, unit, displayHeight);
+  const naturalWidthSelection = Math.round(cropWidthPx * (naturalWidth / displayWidth));
+  const naturalHeightSelection = Math.round(cropHeightPx * (naturalHeight / displayHeight));
+
+  const anchorLeft = Math.min(Math.max(xPx + cropWidthPx, 0), displayWidth);
+  const anchorTop = Math.min(Math.max(yPx, 0), displayHeight);
+  const placeRightOfBox = anchorLeft < 80;
+  const placeBelowBox = anchorTop < 28;
+
+  return {
+    label: `${naturalWidthSelection} × ${naturalHeightSelection}px`,
+    left: anchorLeft,
+    top: anchorTop,
+    translateX: placeRightOfBox ? '0%' : '-100%',
+    translateY: placeBelowBox ? '20%' : '-120%',
+  };
+};
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -407,9 +471,16 @@ const App: React.FC = () => {
     const canvas = document.createElement('canvas');
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
-    
-    canvas.width = completedCrop.width;
-    canvas.height = completedCrop.height;
+    const outputWidth = Math.max(1, Math.round(completedCrop.width * scaleX));
+    const outputHeight = Math.max(1, Math.round(completedCrop.height * scaleY));
+
+    if (outputWidth <= 0 || outputHeight <= 0) {
+      setError('Unable to process the crop.');
+      return;
+    }
+
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     const ctx = canvas.getContext('2d');
 
     if (!ctx) {
@@ -417,22 +488,21 @@ const App: React.FC = () => {
         return;
     }
 
-    const pixelRatio = window.devicePixelRatio || 1;
-    canvas.width = completedCrop.width * pixelRatio;
-    canvas.height = completedCrop.height * pixelRatio;
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     ctx.imageSmoothingQuality = 'high';
+
+    const sourceX = Math.round(completedCrop.x * scaleX);
+    const sourceY = Math.round(completedCrop.y * scaleY);
 
     ctx.drawImage(
       image,
-      completedCrop.x * scaleX,
-      completedCrop.y * scaleY,
-      completedCrop.width * scaleX,
-      completedCrop.height * scaleY,
+      sourceX,
+      sourceY,
+      outputWidth,
+      outputHeight,
       0,
       0,
-      completedCrop.width,
-      completedCrop.height,
+      outputWidth,
+      outputHeight,
     );
     
     const croppedImageUrl = canvas.toDataURL('image/png');
@@ -608,6 +678,10 @@ const App: React.FC = () => {
       />
     );
 
+    const cropOverlayMetrics = activeTab === 'crop'
+      ? getCropOverlayMetrics(crop, imgRef.current)
+      : null;
+
     return (
       <div className="w-full flex gap-4">
         {history.length > 0 && (
@@ -624,15 +698,29 @@ const App: React.FC = () => {
 
           {activeTab === 'crop' ? (
             <div className="w-full flex justify-center">
-              <ReactCrop
-                crop={crop}
-                onChange={c => setCrop(c)}
-                onComplete={c => setCompletedCrop(c)}
-                aspect={aspect}
-                className="max-h-[60vh]"
-              >
-                {cropImageElement}
-              </ReactCrop>
+              <div className="relative inline-block">
+                <ReactCrop
+                  crop={crop}
+                  onChange={c => setCrop(c)}
+                  onComplete={c => setCompletedCrop(c)}
+                  aspect={aspect}
+                  className="max-h-[60vh]"
+                >
+                  {cropImageElement}
+                </ReactCrop>
+                {cropOverlayMetrics && (
+                  <div
+                    className="absolute text-xs font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] pointer-events-none select-none"
+                    style={{
+                      left: `${cropOverlayMetrics.left}px`,
+                      top: `${cropOverlayMetrics.top}px`,
+                      transform: `translate(${cropOverlayMetrics.translateX}, ${cropOverlayMetrics.translateY})`,
+                    }}
+                  >
+                    {cropOverlayMetrics.label}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             imageDisplay
