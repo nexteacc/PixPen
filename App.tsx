@@ -17,6 +17,7 @@ import CameraCapture from './components/CameraCapture';
 import LoadingOverlay from './src/components/LoadingOverlay';
 import ObjectSelectCanvas from './src/components/ObjectSelectCanvas';
 import EditPanel from './src/components/EditPanel';
+import HistorySidebar from './src/components/HistorySidebar';
 // import MaskPainter, { type MaskPainterHandle } from './components/MaskPainter';
 
 // Helper to convert a data URL string to a File object
@@ -277,6 +278,11 @@ const App: React.FC = () => {
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
+
+  const handleSelectHistoryStep = useCallback((index: number) => {
+    setHistoryIndex(index);
+    setSelectedObjects([]);
+  }, [setHistoryIndex, setSelectedObjects]);
 
   const fetchSegments = useCallback((image: File) => {
     const segmentationPipeline = (async () => {
@@ -603,25 +609,35 @@ const App: React.FC = () => {
     );
 
     return (
-      <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
-        {isLoading && <LoadingOverlay message="AI is working its magic..." />}
-        {isSegmenting && <LoadingOverlay message="Analyzing objects in the image..." />}
-
-        {activeTab === 'crop' ? (
-          <div className="w-full flex justify-center">
-            <ReactCrop
-              crop={crop}
-              onChange={c => setCrop(c)}
-              onComplete={c => setCompletedCrop(c)}
-              aspect={aspect}
-              className="max-h-[60vh]"
-            >
-              {cropImageElement}
-            </ReactCrop>
-          </div>
-        ) : (
-          imageDisplay
+      <div className="w-full flex gap-4">
+        {history.length > 0 && (
+          <HistorySidebar
+            history={history}
+            historyIndex={historyIndex}
+            onSelect={handleSelectHistoryStep}
+            maxEntries={5}
+          />
         )}
+        <div className="relative flex-1 shadow-2xl rounded-xl overflow-hidden bg-black/20">
+          {isLoading && <LoadingOverlay message="AI is working its magic..." />}
+          {isSegmenting && <LoadingOverlay message="Analyzing objects in the image..." />}
+
+          {activeTab === 'crop' ? (
+            <div className="w-full flex justify-center">
+              <ReactCrop
+                crop={crop}
+                onChange={c => setCrop(c)}
+                onComplete={c => setCompletedCrop(c)}
+                aspect={aspect}
+                className="max-h-[60vh]"
+              >
+                {cropImageElement}
+              </ReactCrop>
+            </div>
+          ) : (
+            imageDisplay
+          )}
+        </div>
       </div>
     );
   };
