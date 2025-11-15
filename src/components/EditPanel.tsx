@@ -138,6 +138,12 @@ const EditPanel: React.FC<EditPanelProps> = ({
             </div>
           )}
 
+          {isSegmenting && !segmentationError && (
+            <div className="text-xs text-amber-700 bg-amber-50 rounded-lg p-2 border border-amber-200 leading-snug">
+              ⏳ Analyzing objects… This step cancels automatically after 30 seconds if the model does not respond.
+            </div>
+          )}
+
           {objectCount > 0 && (
             <button
               type="button"

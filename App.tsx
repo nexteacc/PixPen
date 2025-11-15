@@ -54,6 +54,31 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
   });
 };
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    promise
+      .then(value => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(error => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+const SEGMENTATION_TIMEOUT_MS = 30000;
+const SEGMENTATION_TIMEOUT_MESSAGE = 'Image segmentation timed out after 30 seconds. Please retry or switch to Chat Edit.';
+
 const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   if (maskFiles.length === 1) {
     return maskFiles[0];
@@ -253,6 +278,19 @@ const App: React.FC = () => {
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
+  const fetchSegments = useCallback((image: File) => {
+    const segmentationPipeline = (async () => {
+      const objects = await segmentImage(image);
+      return alignMasksToOriginal(objects, image);
+    })();
+
+    return withTimeout(
+      segmentationPipeline,
+      SEGMENTATION_TIMEOUT_MS,
+      SEGMENTATION_TIMEOUT_MESSAGE,
+    );
+  }, []);
+
   const addImageToHistory = useCallback((newImageFile: File) => {
     const newHistory = history.slice(0, historyIndex + 1);
     newHistory.push(newImageFile);
@@ -279,10 +317,9 @@ const App: React.FC = () => {
     setSegmentationError(null);
     setSegmentObjects([]);
     setSelectedObjects([]);
-    
+
     try {
-      const objects = await segmentImage(file);
-      const alignedObjects = await alignMasksToOriginal(objects, file);
+      const alignedObjects = await fetchSegments(file);
       setSegmentObjects(alignedObjects);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Image segmentation failed';
@@ -291,7 +328,7 @@ const App: React.FC = () => {
     } finally {
       setIsSegmenting(false);
     }
-  }, []);
+  }, [fetchSegments]);
 
   const handleGenerate = useCallback(async () => {
     if (!currentImage) {
@@ -490,15 +527,14 @@ const App: React.FC = () => {
 
   const handleResegment = useCallback(async () => {
     if (!currentImage) return;
-    
+
     setIsSegmenting(true);
     setSegmentationError(null);
     setSegmentObjects([]);
     setSelectedObjects([]);
-    
+
     try {
-      const objects = await segmentImage(currentImage);
-      const alignedObjects = await alignMasksToOriginal(objects, currentImage);
+      const alignedObjects = await fetchSegments(currentImage);
       setSegmentObjects(alignedObjects);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Image segmentation failed';
@@ -507,7 +543,7 @@ const App: React.FC = () => {
     } finally {
       setIsSegmenting(false);
     }
-  }, [currentImage]);
+  }, [currentImage, fetchSegments]);
 
   const renderImageSection = (mode: LayoutMode) => {
     const imageDisplay = (
