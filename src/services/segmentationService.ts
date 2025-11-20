@@ -18,6 +18,12 @@ const resolveApiKey = (): string => {
     return apiKey;
 };
 
+const resolveSegmentationModel = (): string => {
+    const browserModel = (import.meta as any).env?.VITE_GEMINI_SEGMENTATION_MODEL;
+    const nodeModel = typeof process !== 'undefined' ? process.env?.GEMINI_SEGMENTATION_MODEL : undefined;
+    return browserModel ?? nodeModel ?? 'gemini-2.5-flash';
+};
+
 const createClient = () => new GoogleGenAI({ apiKey: resolveApiKey() });
 
 /**
@@ -235,8 +241,9 @@ export async function segmentImage(imageFile: File): Promise<SegmentObject[]> {
     const textPart = { text: SEGMENTATION_PROMPT };
     
     // 使用支持分割的模型（与 gemini-mask.html 一致）
+    const modelName = resolveSegmentationModel();
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: modelName,
         contents: {
             parts: [textPart, imagePart]
         },

@@ -18,6 +18,12 @@ const resolveApiKey = (): string => {
     return apiKey;
 };
 
+const resolveImageModel = (): string => {
+    const browserModel = import.meta.env?.VITE_GEMINI_IMAGE_MODEL;
+    const nodeModel = typeof process !== 'undefined' ? process.env?.GEMINI_IMAGE_MODEL : undefined;
+    return browserModel ?? nodeModel ?? 'gemini-2.5-flash-image-preview';
+};
+
 const createClient = () => new GoogleGenAI({ apiKey: resolveApiKey() });
 
 // Helper function to convert a File object to a Gemini API Part
@@ -113,9 +119,10 @@ Safety & Ethics Policy:
 Output: Return ONLY the final edited image. Do not return text.`;
     const textPart = { text: prompt };
 
-    console.log('Sending image and prompt to the model...');
+    const modelName = resolveImageModel();
+    console.log(`Sending image and prompt to the model (${modelName})...`);
     const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image-preview',
+        model: modelName,
         contents: {
             parts: [
                 textPart,
@@ -153,9 +160,10 @@ Safety & Ethics Policy:
 Output: Return ONLY the final filtered image. Do not return text.`;
     const textPart = { text: prompt };
 
-    console.log('Sending image and filter prompt to the model...');
+    const modelName = resolveImageModel();
+    console.log(`Sending image and filter prompt to the model (${modelName})...`);
     const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image-preview',
+        model: modelName,
         contents: { parts: [originalImagePart, textPart] },
     });
     console.log('Received response from model for filter.', response);
@@ -201,9 +209,10 @@ Safety & Ethics Policy:
 Output: Return ONLY the final edited image. Do not return text.`;
     const textPart = { text: prompt };
 
-    console.log('Sending image, mask, and prompt to the model...');
+    const modelName = resolveImageModel();
+    console.log(`Sending image, mask, and prompt to the model (${modelName})...`);
     const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image-preview',
+        model: modelName,
         contents: {
             parts: [
                 textPart,

@@ -15,6 +15,9 @@ This contains everything you need to run your app locally.
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Configure environment variables in [.env.local](.env.local):
+   - `GEMINI_API_KEY`: Your Gemini API key (required)
+   - `GEMINI_IMAGE_MODEL`: Model for image editing (optional, defaults to `gemini-2.5-flash-image-preview`)
+   - `GEMINI_SEGMENTATION_MODEL`: Model for object segmentation (optional, defaults to `gemini-2.5-flash`)
 3. Run the app:
    `npm run dev`
