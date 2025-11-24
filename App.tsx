@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
-import { generateEditedImage, generateFilteredImage } from './services/geminiService';
+import { generateEditedImage, generateFilteredImage, generateChatEditedImage } from './services/geminiService';
 import { segmentImage, alignMasksToOriginal } from './src/services/segmentationService';
 import type { SegmentObject } from './src/types/segmentation';
 import FilterPanel from './components/FilterPanel';
@@ -18,6 +18,7 @@ import LoadingOverlay from './src/components/LoadingOverlay';
 import ObjectSelectCanvas from './src/components/ObjectSelectCanvas';
 import EditPanel from './src/components/EditPanel';
 import HistorySidebar from './src/components/HistorySidebar';
+import ReferenceGallery, { type ReferenceImageItem } from './components/ReferenceGallery';
 // import MaskPainter, { type MaskPainterHandle } from './components/MaskPainter';
 
 // Helper to convert a data URL string to a File object
@@ -44,6 +45,15 @@ const fileToDataURL = async (file: File): Promise<string> => {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = error => reject(error);
   });
+};
+
+const serializeFile = async (file: File): Promise<SerializedFile> => {
+  const dataUrl = await fileToDataURL(file);
+  return {
+    name: file.name,
+    type: file.type,
+    dataUrl,
+  };
 };
 
 const loadImage = (src: string): Promise<HTMLImageElement> => {
@@ -141,8 +151,27 @@ async function withTimeout<T>(
   });
 }
 
-const SEGMENTATION_TIMEOUT_MS = 30000;
-const SEGMENTATION_TIMEOUT_MESSAGE = 'Image segmentation timed out after 30 seconds. Please retry or switch to Chat Edit.';
+const SEGMENTATION_TIMEOUT_MS = 20000;
+const SEGMENTATION_TIMEOUT_MESSAGE = 'Image segmentation timed out after 20 seconds. Please retry or switch to Chat Edit.';
+const MAX_REFERENCE_IMAGES = 4;
+const SESSION_STORAGE_KEY = 'pixpen:session';
+
+type ReferenceImage = ReferenceImageItem & { file: File };
+
+type SerializedFile = {
+  name: string;
+  type: string;
+  dataUrl: string;
+};
+
+type PersistedReferenceImage = SerializedFile & { id: string };
+
+type PersistedSession = {
+  history: SerializedFile[];
+  historyIndex: number;
+  referenceImages: PersistedReferenceImage[];
+  activeReferenceId: string | null;
+};
 
 const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   if (maskFiles.length === 1) {
@@ -188,37 +217,6 @@ const combineMaskFiles = async (maskFiles: File[]): Promise<File> => {
   return new File([blob], `combined-mask-${Date.now()}.png`, { type: 'image/png' });
 };
 
-const createFullImageMask = async (imageFile: File): Promise<File> => {
-  const dataUrl = await fileToDataURL(imageFile);
-  const image = await loadImage(dataUrl);
-  const width = image.naturalWidth || image.width;
-  const height = image.naturalHeight || image.height;
-
-  if (!width || !height) {
-    throw new Error('Unable to create a full-image mask because the dimensions are unknown.');
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-
-  if (!ctx) {
-    throw new Error('Unable to create a canvas for the full-image mask.');
-  }
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-
-  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-
-  if (!blob) {
-    throw new Error('Unable to export the full-image mask.');
-  }
-
-  return new File([blob], `full-mask-${Date.now()}.png`, { type: 'image/png' });
-};
-
 const formatObjectNumber = (id: string, fallbackIndex: number): number => {
   const match = id.match(/obj_(\d+)/);
   if (match) {
@@ -249,6 +247,8 @@ Selected objects (edit only these, keep all other pixels identical):
 ${lines.join('\n')}
 If the user instruction omits a subject, apply it uniformly to the listed objects only.`;
 };
+
+const createReferenceId = (): string => `ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 type Tab = 'retouch' | 'crop'; // 'filters' disabled
 type LayoutMode = 'vertical' | 'rightDock' | 'leftDock';
@@ -291,13 +291,19 @@ const App: React.FC = () => {
   const [selectedObjects, setSelectedObjects] = useState<SegmentObject[]>([]);
   const [isSegmenting, setIsSegmenting] = useState<boolean>(false);
   const [segmentationError, setSegmentationError] = useState<string | null>(null);
+  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  const [activeReferenceId, setActiveReferenceId] = useState<string | null>(null);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
+  const [isSessionReady, setIsSessionReady] = useState(false);
   
   const imgRef = useRef<HTMLImageElement>(null);
+  const hasRestoredSessionRef = useRef(false);
   // const maskPainterRef = useRef<MaskPainterHandle>(null);
 
   const currentImage = history[historyIndex] ?? null;
   const originalImage = history[0] ?? null;
   const isEditing = Boolean(currentImage);
+  const activeReferenceImage = referenceImages.find(image => image.id === activeReferenceId) ?? null;
 
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
@@ -339,6 +345,95 @@ const App: React.FC = () => {
     window.localStorage.setItem(LAYOUT_STORAGE_KEY, layout);
   }, [layout]);
 
+  // Restore previous session on mount
+  useEffect(() => {
+    if (hasRestoredSessionRef.current) return;
+    if (typeof window === 'undefined') return;
+
+    const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!stored) {
+      hasRestoredSessionRef.current = true;
+      setIsSessionReady(true);
+      return;
+    }
+
+    (async () => {
+      try {
+        const payload: PersistedSession = JSON.parse(stored);
+        if (!Array.isArray(payload.history) || payload.history.length === 0) {
+          window.localStorage.removeItem(SESSION_STORAGE_KEY);
+          return;
+        }
+
+        const restoredHistory = payload.history.map((item, index) =>
+          dataURLtoFile(item.dataUrl, item.name || `image-${index + 1}.png`),
+        );
+        setHistory(restoredHistory);
+
+        const safeIndex = Math.min(
+          Math.max(payload.historyIndex ?? restoredHistory.length - 1, 0),
+          restoredHistory.length - 1,
+        );
+        setHistoryIndex(safeIndex);
+
+        if (Array.isArray(payload.referenceImages) && payload.referenceImages.length > 0) {
+          const restoredReferences: ReferenceImage[] = payload.referenceImages.map((item, index) => {
+            const file = dataURLtoFile(item.dataUrl, item.name || `reference-${index + 1}.png`);
+            return {
+              id: item.id || createReferenceId(),
+              file,
+              previewUrl: item.dataUrl,
+              name: item.name || file.name,
+            };
+          });
+          setReferenceImages(restoredReferences);
+
+          const hasMatchingActive = restoredReferences.some(ref => ref.id === payload.activeReferenceId);
+          setActiveReferenceId(hasMatchingActive ? payload.activeReferenceId : restoredReferences[0]?.id ?? null);
+        }
+      } catch (err) {
+        console.error('❌ Failed to restore previous session:', err);
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      } finally {
+        hasRestoredSessionRef.current = true;
+        setIsSessionReady(true);
+      }
+    })();
+  }, []);
+
+  // Persist session when history or references change
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isSessionReady) return;
+    if (history.length === 0) {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      return;
+    }
+
+    const persistSession = async () => {
+      try {
+        const serializedHistory = await Promise.all(history.map(file => serializeFile(file)));
+        const serializedReferences = await Promise.all(referenceImages.map(async image => {
+          const serialized = await serializeFile(image.file);
+          return { ...serialized, id: image.id };
+        }));
+
+        const payload: PersistedSession = {
+          history: serializedHistory,
+          historyIndex,
+          referenceImages: serializedReferences,
+          activeReferenceId,
+        };
+
+        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+      } catch (err) {
+        console.error('❌ Failed to persist session:', err);
+      }
+    };
+
+    persistSession();
+  }, [history, historyIndex, referenceImages, activeReferenceId, isSessionReady]);
+
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -362,15 +457,77 @@ const App: React.FC = () => {
   }, []);
 
   const addImageToHistory = useCallback((newImageFile: File) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(newImageFile);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    setHistory(prevHistory => {
+      const nextHistory = [...prevHistory, newImageFile];
+      setHistoryIndex(nextHistory.length - 1);
+      return nextHistory;
+    });
     // Reset transient states after an action
     setCrop(undefined);
     setCompletedCrop(undefined);
     setSelectedObjects([]);
-  }, [history, historyIndex]);
+  }, []);
+
+  const resetReferencePanel = useCallback(() => {
+    setReferenceImages([]);
+    setActiveReferenceId(null);
+    setReferenceError(null);
+  }, []);
+
+  const handleReferenceUpload = useCallback(async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) {
+      return;
+    }
+
+    if (referenceImages.length >= MAX_REFERENCE_IMAGES) {
+      setReferenceError(`最多只能上传 ${MAX_REFERENCE_IMAGES} 张参考图。`);
+      return;
+    }
+
+    setReferenceError(null);
+    const availableSlots = Math.max(0, MAX_REFERENCE_IMAGES - referenceImages.length);
+    const files = Array.from(fileList).slice(0, availableSlots || MAX_REFERENCE_IMAGES);
+    const newEntries: ReferenceImage[] = [];
+
+    for (const file of files) {
+      const previewUrl = await fileToDataURL(file);
+      newEntries.push({
+        id: createReferenceId(),
+        file,
+        previewUrl,
+        name: file.name || 'Reference image',
+      });
+    }
+
+    if (newEntries.length === 0) {
+      return;
+    }
+
+    setReferenceImages(prev => [...prev, ...newEntries]);
+    setActiveReferenceId(prev => prev ?? newEntries[0]?.id ?? null);
+  }, [referenceImages.length]);
+
+  const handleReferenceRemove = useCallback((id: string) => {
+    setReferenceImages(prev => {
+      const next = prev.filter(image => image.id !== id);
+      setActiveReferenceId(current => {
+        if (current === id) {
+          return next[0]?.id ?? null;
+        }
+        return current;
+      });
+      return next;
+    });
+    setReferenceError(null);
+  }, []);
+
+  const handleReferenceSelect = useCallback((id: string) => {
+    setActiveReferenceId(id);
+  }, []);
+
+  const handleReferenceClearAll = useCallback(() => {
+    resetReferencePanel();
+  }, [resetReferencePanel]);
 
   const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
@@ -379,6 +536,7 @@ const App: React.FC = () => {
     setActiveTab('retouch');
     setCrop(undefined);
     setCompletedCrop(undefined);
+    resetReferencePanel();
     // setMaskDataUrl(null);
     // maskPainterRef.current?.clear();
     
@@ -398,7 +556,7 @@ const App: React.FC = () => {
     } finally {
       setIsSegmenting(false);
     }
-  }, [fetchSegments]);
+  }, [fetchSegments, resetReferencePanel]);
 
   const handleGenerate = useCallback(async () => {
     if (!currentImage) {
@@ -420,13 +578,14 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const maskFile = editMode === 'precision'
-        ? await combineMaskFiles(selectedObjects.map(obj => obj.maskFile))
-        : await createFullImageMask(currentImage);
-      const finalPrompt = editMode === 'precision'
-        ? buildPrecisionPrompt(prompt, selectedObjects)
-        : prompt.trim();
-      const editedImageUrl = await generateEditedImage(currentImage, finalPrompt, maskFile);
+      let editedImageUrl: string;
+      if (editMode === 'precision') {
+        const maskFile = await combineMaskFiles(selectedObjects.map(obj => obj.maskFile));
+        const finalPrompt = buildPrecisionPrompt(prompt, selectedObjects);
+        editedImageUrl = await generateEditedImage(currentImage, finalPrompt, maskFile, activeReferenceImage?.file);
+      } else {
+        editedImageUrl = await generateChatEditedImage(currentImage, prompt.trim(), activeReferenceImage?.file);
+      }
       const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
       addImageToHistory(newImageFile);
       
@@ -437,7 +596,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentImage, prompt, selectedObjects, editMode, addImageToHistory]);
+  }, [currentImage, prompt, selectedObjects, editMode, addImageToHistory, activeReferenceImage]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -683,48 +842,64 @@ const App: React.FC = () => {
       : null;
 
     return (
-      <div className="w-full flex gap-4">
-        {history.length > 0 && (
-          <HistorySidebar
-            history={history}
-            historyIndex={historyIndex}
-            onSelect={handleSelectHistoryStep}
-            maxEntries={5}
-          />
-        )}
-        <div className="relative flex-1 shadow-2xl rounded-xl overflow-hidden bg-black/20">
-          {isLoading && <LoadingOverlay message="AI is working its magic..." />}
-          {isSegmenting && <LoadingOverlay message="Analyzing objects in the image..." />}
-
-          {activeTab === 'crop' ? (
-            <div className="w-full flex justify-center">
-              <div className="relative inline-block">
-                <ReactCrop
-                  crop={crop}
-                  onChange={c => setCrop(c)}
-                  onComplete={c => setCompletedCrop(c)}
-                  aspect={aspect}
-                  className="max-h-[60vh]"
-                >
-                  {cropImageElement}
-                </ReactCrop>
-                {cropOverlayMetrics && (
-                  <div
-                    className="absolute text-xs font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] pointer-events-none select-none"
-                    style={{
-                      left: `${cropOverlayMetrics.left}px`,
-                      top: `${cropOverlayMetrics.top}px`,
-                      transform: `translate(${cropOverlayMetrics.translateX}, ${cropOverlayMetrics.translateY})`,
-                    }}
-                  >
-                    {cropOverlayMetrics.label}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            imageDisplay
+      <div className="w-full flex flex-col gap-4">
+        <div className="w-full flex gap-4">
+          {history.length > 0 && (
+            <HistorySidebar
+              history={history}
+              historyIndex={historyIndex}
+              onSelect={handleSelectHistoryStep}
+              maxEntries={5}
+            />
           )}
+          <div className="flex-1 flex flex-col gap-4 min-w-0">
+            <div className="relative shadow-2xl rounded-xl overflow-hidden bg-black/20">
+              {isLoading && <LoadingOverlay message="AI is working its magic..." />}
+              {isSegmenting && <LoadingOverlay message="Analyzing objects in the image..." />}
+
+              {activeTab === 'crop' ? (
+                <div className="w-full flex justify-center">
+                  <div className="relative inline-block">
+                    <ReactCrop
+                      crop={crop}
+                      onChange={c => setCrop(c)}
+                      onComplete={c => setCompletedCrop(c)}
+                      aspect={aspect}
+                      className="max-h-[60vh]"
+                    >
+                      {cropImageElement}
+                    </ReactCrop>
+                    {cropOverlayMetrics && (
+                      <div
+                        className="absolute text-xs font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] pointer-events-none select-none"
+                        style={{
+                          left: `${cropOverlayMetrics.left}px`,
+                          top: `${cropOverlayMetrics.top}px`,
+                          transform: `translate(${cropOverlayMetrics.translateX}, ${cropOverlayMetrics.translateY})`,
+                        }}
+                      >
+                        {cropOverlayMetrics.label}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                imageDisplay
+              )}
+            </div>
+
+            {currentImageUrl && (
+              <ReferenceGallery
+                images={referenceImages}
+                activeImageId={activeReferenceId}
+                onSelect={handleReferenceSelect}
+                onUpload={handleReferenceUpload}
+                onRemove={handleReferenceRemove}
+                onClearAll={handleReferenceClearAll}
+                errorMessage={referenceError}
+              />
+            )}
+          </div>
         </div>
       </div>
     );

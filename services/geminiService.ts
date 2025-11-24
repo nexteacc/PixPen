@@ -89,28 +89,36 @@ const handleApiResponse = (
  * @param originalImage The original image file.
  * @param userPrompt The text prompt describing the desired edit.
  * @param mask The mask file highlighting the region to edit (white = editable, black = protected).
+ * @param referenceImage Optional reference image used to replace the masked region.
  * @returns A promise that resolves to the data URL of the edited image.
  */
 export const generateEditedImage = async (
     originalImage: File,
     userPrompt: string,
     mask: File,
+    referenceImage?: File,
 ): Promise<string> => {
     console.log('Starting generative edit with mask selection.');
     const ai = createClient();
     
     const originalImagePart = await fileToPart(originalImage);
     const maskPart = await fileToPart(mask);
+    const referencePart = referenceImage ? await fileToPart(referenceImage) : null;
+    const referenceInstructions = referenceImage
+        ? `You will also receive a reference image that represents the desired replacement. Match the reference object's appearance, color, and material while keeping lighting consistent with the base photo.`
+        : '';
     const prompt = `You are an expert photo editor AI. Your task is to perform a natural, localized edit on the provided image based on the user's request.
 User Request: "${userPrompt}"
 
 You will receive two images:
 1. The base photo to edit.
 2. A binary mask where white regions indicate the editable area and black regions must remain unchanged.
+${referenceImage ? '3. A reference image that should replace or inspire the masked regions.' : ''}
 
 Editing Guidelines:
 - The edit must be realistic and blend seamlessly with the surrounding area.
 - Only modify pixels covered by the white regions of the mask. The black regions must remain identical to the original.
+${referenceInstructions}
 
 Safety & Ethics Policy:
 - You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
@@ -124,16 +132,77 @@ Output: Return ONLY the final edited image. Do not return text.`;
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: modelName,
         contents: {
-            parts: [
-                textPart,
-                originalImagePart,
-                maskPart,
-            ],
+            parts: referencePart
+                ? [
+                    textPart,
+                    originalImagePart,
+                    maskPart,
+                    referencePart,
+                ]
+                : [
+                    textPart,
+                    originalImagePart,
+                    maskPart,
+                ],
         },
     });
     console.log('Received response from model.', response);
 
     return handleApiResponse(response, 'edit');
+};
+
+/**
+ * Generates an edited image for chat mode without masks (entire image editable).
+ * @param originalImage The original image file.
+ * @param userPrompt The text prompt describing the desired edit.
+ * @param referenceImage Optional reference image used to guide the chat edit.
+ * @returns A promise that resolves to the data URL of the edited image.
+ */
+export const generateChatEditedImage = async (
+    originalImage: File,
+    userPrompt: string,
+    referenceImage?: File,
+): Promise<string> => {
+    console.log('Starting chat-based full image edit.');
+    const ai = createClient();
+
+    const originalImagePart = await fileToPart(originalImage);
+    const referencePart = referenceImage ? await fileToPart(referenceImage) : null;
+    const prompt = `You are an expert photo editor AI. Edit the entire image based on the user's request.
+User Request: "${userPrompt}"
+
+Editing Guidelines:
+- Apply the instruction across the whole image unless it clearly specifies a region.
+- Ensure the result stays realistic and preserves the original composition unless otherwise stated.
+${referenceImage ? 'Use the provided reference image to guide the replacement. Match its textures and colors where applicable.' : ''}
+
+Safety & Ethics Policy:
+- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
+- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). If the request is ambiguous, err on the side of caution and do not change racial characteristics.
+
+Output: Return ONLY the final edited image. Do not return text.`;
+    const textPart = { text: prompt };
+
+    const modelName = resolveImageModel();
+    console.log(`Sending chat edit prompt to the model (${modelName})...`);
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: modelName,
+        contents: {
+            parts: referencePart
+                ? [
+                    textPart,
+                    originalImagePart,
+                    referencePart,
+                ]
+                : [
+                    textPart,
+                    originalImagePart,
+                ],
+        },
+    });
+    console.log('Received response from model for chat edit.', response);
+
+    return handleApiResponse(response, 'chat-edit');
 };
 
 /**

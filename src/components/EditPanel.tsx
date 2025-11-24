@@ -81,7 +81,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
           placeholder="e.g., make it red, turn it blue, replace it with a dog..."
-          className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60 min-h-24 leading-relaxed"
+          className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm focus:outline-none resize-y disabled:cursor-not-allowed disabled:opacity-60 min-h-24 max-h-72 leading-relaxed"
           disabled={isLoading}
           rows={4}
         />
@@ -140,7 +140,7 @@ const EditPanel: React.FC<EditPanelProps> = ({
 
           {isSegmenting && !segmentationError && (
             <div className="text-xs text-amber-700 bg-amber-50 rounded-lg p-2 border border-amber-200 leading-snug">
-              ⏳ Analyzing objects… This step cancels automatically after 30 seconds if the model does not respond.
+              ⏳ Analyzing objects… This step cancels automatically after 20 seconds if the model does not respond.
             </div>
           )}
 
