@@ -4,11 +4,13 @@
 */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { HomeIcon } from '../../components/icons';
 
 interface HistorySidebarProps {
   history: File[];
   historyIndex: number;
   onSelect: (index: number) => void;
+  onGoHome?: () => void;
   maxEntries?: number;
 }
 
@@ -22,6 +24,7 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
   history,
   historyIndex,
   onSelect,
+  onGoHome,
   maxEntries = 5
 }) => {
   const visibleEntries = useMemo<HistoryEntry[]>(() => {
@@ -70,6 +73,18 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
 
   return (
     <div className="w-32 flex-shrink-0 bg-gray-50/80 border border-gray-200 rounded-2xl p-3 flex flex-col gap-3 shadow-inner shadow-white/60">
+      {onGoHome && (
+        <button
+          type="button"
+          onClick={onGoHome}
+          className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl py-2 px-3 flex items-center justify-center gap-2 transition-all duration-200 shadow-md hover:shadow-lg active:scale-95"
+          title="返回首页"
+          aria-label="返回首页"
+        >
+          <HomeIcon className="w-4 h-4" />
+          <span className="text-xs">首页</span>
+        </button>
+      )}
       <div className="flex flex-col gap-2 overflow-y-auto max-h-[60vh] pr-1">
         {visibleEntries.map(entry => {
           const isActive = entry.index === historyIndex;

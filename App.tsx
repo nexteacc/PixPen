@@ -11,7 +11,7 @@ import { segmentImage, alignMasksToOriginal } from './src/services/segmentationS
 import type { SegmentObject } from './src/types/segmentation';
 import FilterPanel from './components/FilterPanel';
 import CropPanel from './components/CropPanel';
-import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon } from './components/icons';
+import { UndoIcon, RedoIcon, EyeIcon, StackLayoutIcon, RightDockLayoutIcon, LeftDockLayoutIcon, HomeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import CameraCapture from './components/CameraCapture';
 import LoadingOverlay from './src/components/LoadingOverlay';
@@ -362,6 +362,8 @@ const App: React.FC = () => {
         const payload: PersistedSession = JSON.parse(stored);
         if (!Array.isArray(payload.history) || payload.history.length === 0) {
           window.localStorage.removeItem(SESSION_STORAGE_KEY);
+          hasRestoredSessionRef.current = true;
+          setIsSessionReady(true);
           return;
         }
 
@@ -386,10 +388,20 @@ const App: React.FC = () => {
               name: item.name || file.name,
             };
           });
-          setReferenceImages(restoredReferences);
+          
+          setReferenceImages(prevReferences => {
+            // Only restore if there are no existing references
+            if (prevReferences.length > 0) {
+              return prevReferences;
+            }
+            return restoredReferences;
+          });
 
-          const hasMatchingActive = restoredReferences.some(ref => ref.id === payload.activeReferenceId);
-          setActiveReferenceId(hasMatchingActive ? payload.activeReferenceId : restoredReferences[0]?.id ?? null);
+          setActiveReferenceId(prevId => {
+            if (prevId) return prevId;
+            const hasMatchingActive = restoredReferences.some(ref => ref.id === payload.activeReferenceId);
+            return hasMatchingActive ? payload.activeReferenceId : restoredReferences[0]?.id ?? null;
+          });
         }
       } catch (err) {
         console.error('❌ Failed to restore previous session:', err);
@@ -404,7 +416,9 @@ const App: React.FC = () => {
   // Persist session when history or references change
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!isSessionReady) return;
+    // Allow persisting new user uploads even if session restore is in progress
+    // This prevents data loss when user uploads an image and refreshes quickly
+    if (!isSessionReady && !hasRestoredSessionRef.current) return;
     if (history.length === 0) {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
       return;
@@ -539,6 +553,23 @@ const App: React.FC = () => {
     resetReferencePanel();
     // setMaskDataUrl(null);
     // maskPainterRef.current?.clear();
+    
+    // Immediately persist the uploaded image to prevent data loss on refresh
+    // This ensures the image is saved even if session restore is still in progress
+    if (typeof window !== 'undefined') {
+      try {
+        const serializedFile = await serializeFile(file);
+        const payload: PersistedSession = {
+          history: [serializedFile],
+          historyIndex: 0,
+          referenceImages: [],
+          activeReferenceId: null,
+        };
+        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+      } catch (err) {
+        console.error('❌ Failed to persist uploaded image:', err);
+      }
+    }
     
     // Auto-segment on upload
     setIsSegmenting(true);
@@ -705,6 +736,20 @@ const App: React.FC = () => {
       input.click();
   }, [handleImageUpload]);
 
+  const handleGoHome = useCallback(() => {
+    setHistory([]);
+    setHistoryIndex(-1);
+    setError(null);
+    setSelectedObjects([]);
+    setSegmentObjects([]);
+    setReferenceImages([]);
+    setActiveReferenceId(null);
+    setPrompt('');
+    setCrop(undefined);
+    setCompletedCrop(undefined);
+    resetReferencePanel();
+  }, [resetReferencePanel]);
+
   const handleDownload = useCallback(() => {
       if (currentImage) {
           const link = document.createElement('a');
@@ -849,6 +894,7 @@ const App: React.FC = () => {
               history={history}
               historyIndex={historyIndex}
               onSelect={handleSelectHistoryStep}
+              onGoHome={handleGoHome}
               maxEntries={5}
             />
           )}
